@@ -1,33 +1,48 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-export const HealthZ = z.object({ ok: z.boolean().optional(), status: z.string().optional() });
-export const ReadyZ  = z.object({ ok: z.boolean().optional(), ready: z.boolean() });
+export const HealthSchema = z.object({ status: z.string() });
+export const ReadySchema = z.object({ status: z.string() });
 
-export const WatchlistZ = z.object({
-  ok: z.boolean(),
-  symbols: z.array(z.string())
-});
-
-export const OptionsPickItemZ = z.object({
+export const WatchlistItemSchema = z.object({
   symbol: z.string(),
-  expiration: z.string().optional(),
-  strike: z.number().optional(),
-  option_type: z.string().optional(),
-  delta: z.number().nullable().optional(),
-  bid: z.number().nullable().optional(),
-  ask: z.number().nullable().optional(),
-  mark: z.number().nullable().optional(),
-  spread_pct: z.number().nullable().optional(),
-  open_interest: z.number().nullable().optional(),
-  volume: z.number().nullable().optional(),
-  score: z.number().nullable().optional(),
-  dte: z.number().nullable().optional()
+  last: z.number().nullish(),
+});
+export const WatchlistSchema = z.array(WatchlistItemSchema);
+
+export const RankedPickSchema = z.object({
+  symbol: z.string(),
+  score: z.number(),
+});
+export const RankedPicksSchema = z.array(RankedPickSchema);
+
+export const OptionContractSchema = z.object({
+  symbol: z.string(),
+  expiry: z.string(),
+  strike: z.number(),
+  type: z.string(),
+  delta: z.number().optional(),
+  gamma: z.number().optional(),
+  theta: z.number().optional(),
+  vega: z.number().optional(),
+});
+export const OptionContractsSchema = z.array(OptionContractSchema);
+
+export const PlanResponseSchema = z.object({
+  targets: z.array(z.number()),
+  per_unit_risk: z.number(),
+  notes: z.string().optional(),
 });
 
-export const OptionsPicksZ = z.object({
-  ok: z.boolean(),
-  env: z.string().optional(),
-  note: z.string().optional(),
-  count_considered: z.number().optional(),
-  picks: z.array(OptionsPickItemZ).default([])
+export const SizingResponseSchema = z.object({
+  qty: z.number(),
+  expected_R: z.number(),
 });
+
+export const AlertSchema = z.object({ id: z.string(), symbol: z.string(), price: z.number() });
+export const AlertsSchema = z.array(AlertSchema);
+
+export const SignalSchema = z.object({ id: z.string(), symbol: z.string(), strength: z.number() });
+export const SignalsSchema = z.array(SignalSchema);
+
+export const PositionSchema = z.object({ symbol: z.string(), qty: z.number(), basis: z.number() });
+export const PositionsSchema = z.array(PositionSchema);

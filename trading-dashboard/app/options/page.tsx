@@ -1,56 +1,39 @@
-"use client";
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { apiPost } from "@/lib/api";
-import { OptionsPicksZ } from "@/lib/zod";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+'use client';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '../../lib/api';
+import { OptionContractsSchema } from '../../lib/zod';
+import { Table } from '../../components/ui/table';
+import { Input } from '../../components/ui/input';
+import { Button } from '../../components/ui/button';
 
-export default function Page() {
-  const [symbol, setSymbol] = useState("SPY");
-  const [side, setSide] = useState("long_call");
-  const [horizon, setHorizon] = useState("intra");
-  const [n, setN] = useState(5);
-
-  const m = useMutation({
-    mutationFn: () => apiPost("/api/v1/options/pick", { symbol, side, horizon, n }, OptionsPicksZ)
+export default function OptionsPage() {
+  const [form, setForm] = useState({ symbol: 'SPY', side: 'call', horizon: '30', n: '5' });
+  const { data = [], refetch, isFetching } = useQuery({
+    queryKey: ['options', form],
+    queryFn: () => apiGet(`/api/v1/options/pick?symbol=${form.symbol}&side=${form.side}&horizon=${form.horizon}&n=${form.n}`, OptionContractsSchema),
   });
-
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Options Picker</h1>
-      <div className="flex gap-2">
-        <Input className="w-28" value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} placeholder="Symbol" />
-        <Select value={side} onValueChange={setSide}>
-          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="long_call">long_call</SelectItem>
-            <SelectItem value="long_put">long_put</SelectItem>
-            <SelectItem value="short_call">short_call</SelectItem>
-            <SelectItem value="short_put">short_put</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={horizon} onValueChange={setHorizon}>
-          <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="intra">intra</SelectItem>
-            <SelectItem value="day">day</SelectItem>
-            <SelectItem value="week">week</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input type="number" className="w-20" value={n} onChange={e => setN(parseInt(e.target.value || "1"))} />
-        <Button onClick={() => m.mutate()} disabled={m.isPending}>Fetch</Button>
+      <div className="flex space-x-2">
+        <Input value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value })} placeholder="Symbol" />
+        <Input value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })} placeholder="Side" />
+        <Input value={form.horizon} onChange={(e) => setForm({ ...form, horizon: e.target.value })} placeholder="Horizon" />
+        <Input value={form.n} onChange={(e) => setForm({ ...form, n: e.target.value })} placeholder="N" />
+        <Button onClick={() => refetch()} disabled={isFetching}>Go</Button>
       </div>
-      <div>
-        {m.isPending ? "Loading..." : m.data?.picks?.length ? (
-          <ul className="text-sm space-y-1">
-            {m.data.picks.slice(0, 20).map((p, i) => (
-              <li key={i}>{p.symbol} · strike {p.strike ?? "?"} · mark {p.mark ?? "?"} · spread {(p.spread_pct ?? 0)*100}%</li>
-            ))}
-          </ul>
-        ) : m.isSuccess ? "No picks." : null}
-      </div>
+      {data.length ? (
+        <Table
+          data={data}
+          columns={[
+            { header: 'Symbol', accessor: (r) => r.symbol },
+            { header: 'Strike', accessor: (r) => r.strike },
+            { header: 'Delta', accessor: (r) => r.delta ?? '-' },
+          ]}
+        />
+      ) : (
+        <p>No contracts found.</p>
+      )}
     </div>
   );
 }

@@ -73,8 +73,6 @@
     "url": "latest",
     "vaul": "^0.9.9",
     "vitest": "latest",
-    "vue": "latest",
-    "vue-router": "latest",
     "zod": "3.25.67"
   },
   "devDependencies": {

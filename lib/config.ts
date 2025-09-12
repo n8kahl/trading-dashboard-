@@ -1,7 +1,7 @@
 export const config = {
   // API Configuration
   api: {
-    baseUrl: process.env.API_BASE_URL || "https://tradingassistantmcpready-production.up.railway.app",
+    baseUrl: process.env.API_BASE_URL ?? "",
     timeout: 30000, // 30 seconds
     retryAttempts: 3,
     retryDelay: 1000, // 1 second base delay
@@ -9,7 +9,7 @@ export const config = {
 
   // WebSocket Configuration
   websocket: {
-    url: process.env.NEXT_PUBLIC_WS_URL || "wss://tradingassistantmcpready-production.up.railway.app/ws",
+    url: process.env.NEXT_PUBLIC_WS_URL ?? "",
     reconnectInterval: 3000, // 3 seconds
     maxReconnectAttempts: 5,
     heartbeatInterval: 30000, // 30 seconds

@@ -1,14 +1,16 @@
 from __future__ import annotations
-from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Literal
-from dateutil.tz import UTC
+from datetime import date
+from typing import Dict, Any, List
+
+from app.services.options_common import (
+    Horizon,
+    Side,
+    _today_utc,
+    choose_expiration_from_list,
+    format_quote,
+    nearest_strike_indices,
+)
 from app.services.tradier_client import get, TradierError
-
-Side = Literal["long_call","long_put","short_call","short_put"]
-Horizon = Literal["intra","day","week"]
-
-def _today_utc() -> date:
-    return datetime.now(tz=UTC).date()
 
 def _as_list(x):
     if x is None:
@@ -53,25 +55,7 @@ async def choose_expiration(ticker: str, horizon: Horizon) -> date:
     exps = await fetch_expirations(ticker)
     if not exps:
         raise TradierError(f"No expirations for {ticker}")
-    today = _today_utc()
-    # horizon targeting (all delayed, so this is "nearest reasonable")
-    if horizon in ("intra","day"):
-        # prefer same-day if available, else next 1-2 days
-        window = [0,1,2]
-    else:  # week
-        window = [3,4,5,6,7,8,9,10]
-    # pick first exp that is today+delta and exists
-    for d in window:
-        target = today + timedelta(days=d)
-        for e in exps:
-            if e == target:
-                return e
-    # fallback: first expiration in the future
-    for e in exps:
-        if e >= today:
-            return e
-    # otherwise last
-    return exps[-1]
+    return choose_expiration_from_list(exps, horizon, today=_today_utc())
 
 # ---------- Chains & Quotes ----------
 async def fetch_chain(ticker: str, exp: date) -> List[Dict[str, Any]]:
@@ -99,7 +83,7 @@ async def fetch_option_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     return out
 
 # ---------- Pick closest-to-ATM N for a side ----------
-async def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
+async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
     cp = "call" if "call" in side else "put"
     spot = await fetch_spot(ticker)
     exp = await choose_expiration(ticker, horizon)
@@ -112,12 +96,15 @@ async def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon,
     if not leg:
         raise TradierError("No contracts for requested side")
 
-    # sort by |strike - spot|
-    def _strike(o): 
-        try: return float(o.get("strike"))
-        except: return float("inf")
-    leg_sorted = sorted(leg, key=lambda o: abs(_strike(o) - spot))
-    picks_raw = leg_sorted[:max(1, min(n, 10))]
+    # Pull strikes and pick the closest to spot
+    def _strike(o):
+        try:
+            return float(o.get("strike"))
+        except Exception:
+            return float("inf")
+    strikes = [_strike(o) for o in leg]
+    idxs = nearest_strike_indices(strikes, spot, max(1, min(n, 10)))
+    picks_raw = [leg[i] for i in idxs]
 
     # fetch quotes for these option symbols to get bid/ask/mark
     syms = [o.get("symbol") for o in picks_raw if o.get("symbol")]
@@ -128,36 +115,25 @@ async def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon,
         sym = o.get("symbol")
         k = _strike(o)
         q = qmap.get(sym, {})
-        bid = q.get("bid") if q.get("bid") not in (None, "na") else None
-        ask = q.get("ask") if q.get("ask") not in (None, "na") else None
-        last = q.get("last") if q.get("last") not in (None, "na") else None
-        mark = None
-        try:
-            if bid is not None and ask is not None:
-                mark = (float(bid) + float(ask)) / 2.0
-            elif last is not None:
-                mark = float(last)
-        except Exception:
-            mark = None
-        spread_pct = None
-        try:
-            if bid is not None and ask is not None and mark and float(mark) > 0:
-                spread_pct = (float(ask) - float(bid)) / float(mark)
-        except Exception:
-            spread_pct = None
+        bid = q.get("bid")
+        ask = q.get("ask")
+        last = q.get("last")
+        qf = format_quote(bid, ask, last)
 
-        picks.append({
-            "symbol": sym,
-            "expiration": exp.isoformat(),
-            "strike": float(k),
-            "option_type": cp,
-            "bid": float(bid) if bid is not None else None,
-            "ask": float(ask) if ask is not None else None,
-            "mark": float(mark) if mark is not None else None,
-            "spread_pct": float(spread_pct) if spread_pct is not None else None,
-            "open_interest": o.get("open_interest"),
-            "volume": o.get("volume"),
-        })
+        picks.append(
+            {
+                "symbol": sym,
+                "expiration": exp.isoformat(),
+                "strike": float(k),
+                "option_type": cp,
+                "bid": qf["bid"],
+                "ask": qf["ask"],
+                "mark": qf["mark"],
+                "spread_pct": qf["spread_pct"],
+                "open_interest": o.get("open_interest"),
+                "volume": o.get("volume"),
+            }
+        )
 
     return {
         "ok": True,

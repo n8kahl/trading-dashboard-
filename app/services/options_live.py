@@ -1,22 +1,18 @@
 from __future__ import annotations
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Dict, Any, List, Literal, Tuple
-from dateutil.tz import UTC
+
+from app.services.options_common import (
+    Horizon,
+    Side,
+    _is_weekend,
+    _next_weekday,
+    _today_utc,
+    expiration_window,
+    format_quote,
+    nearest_strike_indices,
+)
 from app.services.polygon import get_json, PolygonError
-
-Side = Literal["long_call","long_put","short_call","short_put"]
-Horizon = Literal["intra","day","week"]
-
-def _today_utc() -> date:
-    return datetime.now(tz=UTC).date()
-
-def _is_weekend(d: date) -> bool:
-    return d.weekday() >= 5
-
-def _next_weekday(d: date) -> date:
-    while _is_weekend(d):
-        d += timedelta(days=1)
-    return d
 
 async def fetch_spot(ticker: str) -> float:
     """Fetch the latest trade price for a ticker."""
@@ -43,14 +39,10 @@ async def _contracts_exist(ticker: str, exp: date, cp: Literal["call","put"]) ->
     })
     return (res.get("resultsCount") or 0) > 0
 
-async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) -> date:
+async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call", "put"]) -> date:
     # Target window by horizon
     start = _next_weekday(_today_utc())
-    if horizon in ("intra","day"):
-        # aim 0-2 DTE
-        min_dte, max_dte = 0, 2
-    else:  # week
-        min_dte, max_dte = 3, 10
+    min_dte, max_dte = expiration_window(horizon)
 
     # Probe forward up to 14 days; prefer first date within window; otherwise first available
     first_available: date | None = None
@@ -67,7 +59,7 @@ async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","p
         return first_available
     raise PolygonError("No expirations found for " + ticker)
 
-async def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call","put"], limit: int = 1000) -> List[Dict[str, Any]]:
+async def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call", "put"], limit: int = 1000) -> List[Dict[str, Any]]:
     res = await get_json("/v3/reference/options/contracts", {
         "underlying_ticker": ticker.upper(),
         "expiration_date": exp.isoformat(),
@@ -78,14 +70,8 @@ async def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call","pu
     })
     return res.get("results") or []
 
-def _nearest_indices(strikes: List[float], spot: float, take: int) -> List[int]:
-    # return indices of strikes closest to spot (ties resolved by natural order)
-    indexed = list(enumerate(strikes))
-    ranked = sorted(indexed, key=lambda it: (abs(it[1]-spot), it[1]))
-    return [i for i,_ in ranked[:take]]
-
 async def _recent_quote(opt_symbol: str) -> Tuple[float | None, float | None, float | None]:
-    # returns (bid, ask, mark) using most recent quote
+    # returns (bid, ask, last) using most recent quote
     q = await get_json(
         f"/v3/quotes/options/{opt_symbol}", {"limit": 1, "sort": "timestamp", "order": "desc"}
     )
@@ -97,15 +83,11 @@ async def _recent_quote(opt_symbol: str) -> Tuple[float | None, float | None, fl
     bid = r0.get("bid_price") or r0.get("bidPrice") or r0.get("bp")
     ask = r0.get("ask_price") or r0.get("askPrice") or r0.get("ap")
     last = r0.get("last_price") or r0.get("price") or r0.get("lp")
-    mark = None
-    if bid is not None and ask is not None:
-        try:
-            mark = (float(bid) + float(ask)) / 2.0
-        except Exception:
-            mark = None
-    return (float(bid) if bid is not None else None,
-            float(ask) if ask is not None else None,
-            float(mark) if mark is not None else (float(last) if last is not None else None))
+    return (
+        float(bid) if bid is not None else None,
+        float(ask) if ask is not None else None,
+        float(last) if last is not None else None,
+    )
 
 async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
     cp = "call" if "call" in side else "put"
@@ -117,29 +99,24 @@ async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int 
 
     # Pull strikes and pick the n closest to spot
     strikes = [float(c.get("strike_price", 0.0)) for c in contracts]
-    idxs = _nearest_indices(strikes, spot, n)
+    idxs = nearest_strike_indices(strikes, spot, n)
 
     # Compose picks (and fetch quotes for those n contracts)
     picks: List[Dict[str, Any]] = []
     for i in idxs:
         c = contracts[i]
         sym = c.get("ticker") or c.get("contract") or c.get("symbol")
-        bid, ask, mark = await _recent_quote(sym)
-        ask_f = float(ask) if ask is not None else None
-        bid_f = float(bid) if bid is not None else None
-        mark_f = float(mark) if mark is not None else None
-        spread_pct = None
-        if ask_f is not None and bid_f is not None and mark_f and mark_f > 0:
-            spread_pct = (ask_f - bid_f) / mark_f
+        bid, ask, last = await _recent_quote(sym)
+        qf = format_quote(bid, ask, last)
         picks.append({
             "symbol": sym,
             "expiration": exp.isoformat(),
             "strike": float(c.get("strike_price")),
             "option_type": cp,
-            "bid": bid_f,
-            "ask": ask_f,
-            "mark": mark_f,
-            "spread_pct": spread_pct,
+            "bid": qf["bid"],
+            "ask": qf["ask"],
+            "mark": qf["mark"],
+            "spread_pct": qf["spread_pct"],
             # You can add more real fields later (open_interest, volume, delta) from additional endpoints/tiers
         })
 

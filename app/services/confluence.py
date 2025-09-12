@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, List
-from datetime import datetime
+from datetime import datetime, UTC
 
 BANDS = [(0,"weak"),(40,"mixed"),(60,"favorable"),(80,"high")]
 
@@ -80,7 +80,7 @@ def compute_confluence_score(context:Dict, strategy_id:str)->Dict:
     total = int(clip(sum(c.points for c in comps),0,100))
     return {
       "version":"cs.v1",
-      "timestamp": datetime.utcnow().isoformat()+"Z",
+      "timestamp": datetime.now(UTC).isoformat()+"Z",
       "symbol": context.get("symbol"),
       "strategy_id": strategy_id,
       "price_ref": context.get("price"),

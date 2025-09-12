@@ -1,8 +1,11 @@
+import logging
 import os
 import time
 import httpx
 from typing import Any, Dict, Optional, List, Tuple
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 TRADIER_ENV = os.getenv("TRADIER_ENV", "sandbox").lower().strip()
 TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
@@ -25,7 +28,7 @@ def _log(event: str, detail: Dict[str, Any]) -> None:
     # token-safe json-ish line logging
     safe = dict(detail)
     safe.pop("Authorization", None)
-    print(f'[{int(time.time()*1000)}] tradier.{event} {safe}')
+    logger.info(f"[{int(time.time()*1000)}] tradier.{event} {safe}")
 
 class TradierClient:
     def __init__(self, timeout: float = 10.0) -> None:

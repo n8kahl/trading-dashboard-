@@ -10,6 +10,13 @@ from app.core.ws import websocket_endpoint, start_ws
 from app.core.risk import start_risk_engine
 from app.security import require_api_key
 
+from contextlib import asynccontextmanager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # TODO: add startup code here if needed
+    yield
+    # TODO: add shutdown code here if needed
+
 app = FastAPI(lifespan=lifespan,  title="Trading Assistant", version="0.0.1")
 
 # --- CORS (allow dashboard & localhost) ---

@@ -1,5 +1,6 @@
 import QueryProvider from "@/src/lib/query-provider";
 import "./globals.css";
+import { Toaster } from "sonner";
 
 export const metadata = { title: "Trading Assistant Dashboard" };
 
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <div className="container">
           <QueryProvider>{children}</QueryProvider>
+          <Toaster position="top-right" />
         </div>
       </body>
     </html>

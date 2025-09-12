@@ -103,3 +103,82 @@ def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
             pass
 
     return out
+
+async def get_positions() -> Dict[str, Any]:
+    """Return open positions; fail-open to empty list."""
+    try:
+        js = await _get("/v1/accounts/positions", {})
+        items = js.get("positions", {}).get("position", [])
+        if isinstance(items, dict):
+            items = [items]
+        norm = []
+        for p in items:
+            norm.append({
+                "symbol": p.get("symbol"),
+                "qty": float(p.get("quantity", 0)),
+                "avg_price": float(p.get("cost_basis", 0)),
+                "side": "long" if float(p.get("quantity", 0)) >= 0 else "short",
+                "market_price": float(p.get("last", 0)),
+                "unrealized_r": 0.0,
+            })
+        return {"ok": True, "items": norm}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "items": []}
+
+async def get_orders(status: str = "all") -> Dict[str, Any]:
+    try:
+        js = await _get("/v1/accounts/orders", {"status": status})
+        items = js.get("orders", {}).get("order", [])
+        if isinstance(items, dict):
+            items = [items]
+        norm = []
+        for o in items:
+            norm.append({
+                "id": o.get("id"),
+                "symbol": o.get("symbol"),
+                "side": o.get("side"),
+                "qty": o.get("quantity"),
+                "type": o.get("type"),
+                "status": o.get("status"),
+            })
+        return {"ok": True, "items": norm}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "items": []}
+
+async def submit_order(symbol: str, side: str, qty: int, order_type: str,
+                       limit_price: float | None = None, stop_price: float | None = None) -> Dict[str, Any]:
+    body: Dict[str, Any] = {
+        "symbol": symbol,
+        "side": side,
+        "quantity": qty,
+        "type": order_type,
+        "duration": "day",
+    }
+    if limit_price is not None:
+        body["price"] = limit_price
+    if stop_price is not None:
+        body["stop"] = stop_price
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(f"{TRADIER_BASE}/v1/accounts/orders", headers=HDRS, data=body)
+            r.raise_for_status()
+            js = r.json().get("order", {})
+            order = {
+                "id": js.get("id"),
+                "status": js.get("status"),
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+            }
+            return {"ok": True, "order": order}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+async def cancel_order(order_id: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.delete(f"{TRADIER_BASE}/v1/accounts/orders/{order_id}", headers=HDRS)
+            r.raise_for_status()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

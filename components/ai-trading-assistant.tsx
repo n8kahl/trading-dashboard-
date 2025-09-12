@@ -9,6 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTradingAPI } from "@/hooks/use-trading-api"
+import { useErrorHandler } from "@/hooks/use-error-handler"
 
 interface AssistantMessage {
   id: string
@@ -52,6 +54,9 @@ export function AITradingAssistant() {
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const [signals, setSignals] = useState<TradingSignal[]>([])
+  const [retryMessage, setRetryMessage] = useState<AssistantMessage | null>(null)
+  const { executeAssistantAction } = useTradingAPI()
+  const { handleError } = useErrorHandler()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when new messages arrive
@@ -112,40 +117,41 @@ export function AITradingAssistant() {
     return () => clearInterval(interval)
   }, [])
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const sendMessage = async (retry?: AssistantMessage) => {
+    const content = retry ? retry.content : input
+    if (!content.trim()) return
 
-    const userMessage: AssistantMessage = {
-      id: Date.now().toString(),
-      type: "user",
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInput("")
-    setIsTyping(true)
-
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        "Based on current market conditions, I recommend monitoring SPY for a potential breakout above $446. Volume is increasing.",
-        "AAPL is showing strong support at $185. Consider a long position with a stop at $183.",
-        "Market volatility is elevated. Consider reducing position sizes and using tighter stops.",
-        "TSLA options flow suggests bullish sentiment. Watch for momentum above $245.",
-        "The VIX is declining, indicating reduced fear. This could support continued upward movement in equities.",
-      ]
-
-      const assistantMessage: AssistantMessage = {
-        id: (Date.now() + 1).toString(),
-        type: "assistant",
-        content: responses[Math.floor(Math.random() * responses.length)],
+    const userMessage: AssistantMessage =
+      retry ?? {
+        id: Date.now().toString(),
+        type: "user",
+        content,
         timestamp: new Date(),
       }
 
+    if (!retry) {
+      setMessages((prev) => [...prev, userMessage])
+      setInput("")
+    }
+
+    setIsTyping(true)
+
+    try {
+      const result = await executeAssistantAction("chat", { message: content })
+      const assistantMessage: AssistantMessage = {
+        id: (Date.now() + 1).toString(),
+        type: "assistant",
+        content: result?.message || "No response",
+        timestamp: new Date(),
+      }
       setMessages((prev) => [...prev, assistantMessage])
+      setRetryMessage(null)
+    } catch (err) {
+      handleError(err, "sendMessage")
+      setRetryMessage(userMessage)
+    } finally {
       setIsTyping(false)
-    }, 1500)
+    }
   }
 
   const getActionIcon = (actionType?: string) => {
@@ -285,10 +291,17 @@ export function AITradingAssistant() {
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 className="text-xs"
               />
-              <Button size="sm" onClick={sendMessage} disabled={!input.trim() || isTyping}>
+              <Button size="sm" onClick={() => sendMessage()} disabled={!input.trim() || isTyping}>
                 <Send className="h-3 w-3" />
               </Button>
             </div>
+            {retryMessage && (
+              <div className="mt-2">
+                <Button size="sm" variant="outline" onClick={() => sendMessage(retryMessage)}>
+                  Try Again
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

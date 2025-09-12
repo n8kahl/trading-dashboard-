@@ -25,7 +25,7 @@ def atr_1m(bars: List[Dict[str, Any]], period: int = 14) -> Optional[float]:
     prev_close = float(bars[0].get("c", 0) or 0)
     for b in bars[1:]:
         h, low, c = map(lambda k: float(b.get(k, 0) or 0), ("h", "l", "c"))
-        tr = max(h - lowow, abs(h - prev_close), abs(low - prev_close))
+        tr = max(h - low, abs(h - prev_close), abs(low - prev_close))
         trs.append(tr)
         prev_close = c
     if len(trs) < period:
@@ -67,7 +67,7 @@ def _resample_n(bars_1m: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
             low = min(float(x["l"]) for x in bucket)
             c = float(bucket[-1]["c"])
             v = sum(float(x.get("v", 0) or 0) for x in bucket)
-            out.append({"o": o, "h": h, "l": l, "c": c, "v": v})
+            out.append({"o": o, "h": h, "l": low, "c": c, "v": v})
             bucket = []
     return out
 

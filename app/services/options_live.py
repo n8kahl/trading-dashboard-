@@ -7,10 +7,9 @@ from .options_common import (
     expiration_window,
     nearest_strike_indices,
     format_quote,
+    Side,
+    Horizon,
 )
-
-Side = Literal["long_call","long_put","short_call","short_put"]
-Horizon = Literal["intra","day","week"]
 
 def _is_weekend(d: date) -> bool:
     return d.weekday() >= 5

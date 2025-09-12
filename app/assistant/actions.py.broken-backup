@@ -9,10 +9,9 @@ from app.services.options_live_tradier import (
     fetch_expirations as _fetch_expirations,
     fetch_chain as _fetch_chain,
 )
+from app.services.options_common import Side, Horizon
 
 # ---------- Request models ----------
-Side = Literal["long_call","long_put","short_call","short_put"]
-Horizon = Literal["intra","day","week"]
 
 class OptionsPickArgs(BaseModel):
     symbol: str = Field(..., description="Underlying ticker, e.g. SPY, AAPL")

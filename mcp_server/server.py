@@ -1,11 +1,15 @@
-import os, asyncio, httpx, atexit
+import os, asyncio, httpx, atexit, logging, sys
 from fastmcp import FastMCP, tool
 
-POLYGON_API_KEY = os.getenv("POLYGON_API_KEY","").strip()
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "").strip()
 BASE = "https://api.polygon.io"
 
 if not POLYGON_API_KEY:
-    raise RuntimeError("POLYGON_API_KEY not set")
+    logging.error(
+        "POLYGON_API_KEY not set. Obtain a Polygon API key from "
+        "https://polygon.io/ and set the POLYGON_API_KEY environment variable."
+    )
+    sys.exit(1)
 
 _client = httpx.AsyncClient(timeout=20)
 
@@ -39,7 +43,14 @@ async def get_ema(ticker: str, window: int = 9, timespan: str = "minute", multip
     Polygon EMA indicator (stocks/indices). window=9/20; timespan='minute'|'hour'|'day'
     """
     url = f"{BASE}/v1/indicators/ema/{ticker}"
-    return await _get(url, timespan=timespan, window=window, multiplier=multiplier, from=from_date, to=to_date, limit=limit)
+    return await _get(
+        url,
+        timespan=timespan,
+        window=window,
+        multiplier=multiplier,
+        limit=limit,
+        **{"from": from_date, "to": to_date},
+    )
 
 @tool
 async def get_rsi(ticker: str, window: int = 14, timespan: str = "minute", multiplier: int = 1, from_date: str = "", to_date: str = "", limit: int = 500):
@@ -47,7 +58,14 @@ async def get_rsi(ticker: str, window: int = 14, timespan: str = "minute", multi
     Polygon RSI indicator.
     """
     url = f"{BASE}/v1/indicators/rsi/{ticker}"
-    return await _get(url, timespan=timespan, window=window, multiplier=multiplier, from=from_date, to=to_date, limit=limit)
+    return await _get(
+        url,
+        timespan=timespan,
+        window=window,
+        multiplier=multiplier,
+        limit=limit,
+        **{"from": from_date, "to": to_date},
+    )
 
 @tool
 async def get_snapshot_ticker(ticker: str):

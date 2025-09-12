@@ -7,7 +7,7 @@ router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 class ExecBody(BaseModel):
     op: str
-    args: Optional[Dict[str, Any]] = {}
+    args: Optional[Dict[str, Any]] = None
 
 class OptionsPickArgs(BaseModel):
     symbol: str
@@ -45,7 +45,7 @@ EXEC_HANDLERS = {
 
 @router.post("/exec")
 async def assistant_exec(body: ExecBody):
-    merged_args = {**(body.args or {}), **{k: v for k, v in body.model_dump().items() if k not in ("op","args") and v is not None}}
+    merged_args = {**(body.args or {}), **{k: v for k, v in body.model_dump().items() if k not in ("op", "args")}}
 
     handler = EXEC_HANDLERS.get(body.op)
     if handler is None:

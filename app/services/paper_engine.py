@@ -57,7 +57,7 @@ def submit(db: Session, intent: SubmitIntent) -> Dict[str, Any]:
         return {"ok": False, "error": f"Daily loss limit reached ({daily_r:.2f}R <= -{MAX_DAILY_LOSS_R}R)"}
 
     bps = _slippage_bps_for_session(intent.session)
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     if intent.side == "buy":
         if intent.entry_px is None:

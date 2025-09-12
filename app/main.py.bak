@@ -1,5 +1,3 @@
-import inspect
-from contextlib import asynccontextmanager
 import importlib
 import logging
 
@@ -9,7 +7,7 @@ from app.core.ws import websocket_endpoint, start_ws
 from app.core.risk import start_risk_engine
 from app.security import require_api_key
 
-app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
+app = FastAPI(title="Trading Assistant", version="0.0.1")
 
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,12 +77,12 @@ _mount("app.routers.assistant_simple", secure=True)
 # websocket endpoint
 app.add_api_websocket_route("/ws", websocket_endpoint)
 
-# @app.on_event("startup")  # replaced by lifespan
+@app.on_event("startup")
 async def _startup_tasks():
     await start_ws()
     await start_risk_engine()
 
 
-# @app.on_event("shutdown")  # replaced by lifespan
+@app.on_event("shutdown")
 async def _shutdown_tradier():
     await close_tradier_client()

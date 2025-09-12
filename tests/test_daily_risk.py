@@ -12,7 +12,7 @@ def test_daily_loss_r_counts_today_only():
     Session = sessionmaker(bind=engine)
     Base.metadata.create_all(engine)
     with Session() as db:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         yesterday = now - timedelta(days=1)
         db.add(PaperTrade(symbol="AAPL", side="sell", qty=1, close_time=now, outcome_r=-1.5))
         db.add(PaperTrade(symbol="AAPL", side="sell", qty=1, close_time=yesterday, outcome_r=-2.0))

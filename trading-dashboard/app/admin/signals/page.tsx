@@ -1,13 +1,24 @@
-"use client";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+'use client';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '../../../lib/api';
+import { SignalsSchema } from '../../../lib/zod';
+import { Table } from '../../../components/ui/table';
 
-export default function Page() {
-  const q = useQuery({ queryKey: ["signals"], queryFn: () => apiGet("/api/v1/admin/signals?limit=20") });
+export default function AdminSignalsPage() {
+  const { data = [] } = useQuery({ queryKey: ['signals'], queryFn: () => apiGet('/api/v1/admin/signals', SignalsSchema) });
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-3">Recent Signals</h1>
-      <pre className="text-xs bg-muted p-3 rounded">{q.isLoading ? "Loading..." : JSON.stringify(q.data, null, 2)}</pre>
+      {data.length ? (
+        <Table
+          data={data}
+          columns={[
+            { header: 'Symbol', accessor: (r) => r.symbol },
+            { header: 'Strength', accessor: (r) => r.strength },
+          ]}
+        />
+      ) : (
+        <p>No signals.</p>
+      )}
     </div>
   );
 }

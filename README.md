@@ -51,3 +51,7 @@ The backend reads the following environment variables:
 Run the FastAPI app with `uvicorn app.main:app`. The dashboard connects to
 `ws://<host>/ws` for live updates. Heartbeats are sent every `WS_PING_SEC`
 seconds, and the connection manager drops unresponsive sockets.
+## Large Assets
+
+Large documentation archives or starter bundles are provided via release assets or external storage. Please download them separately instead of committing them to the repository.
+

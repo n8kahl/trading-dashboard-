@@ -10,6 +10,8 @@ import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+const RISK_REMINDER = "⚠️ Trading is risky. This is for learning only."
+
 interface AssistantMessage {
   id: string
   type: "user" | "assistant" | "system"
@@ -34,14 +36,13 @@ export function AITradingAssistant() {
     {
       id: "1",
       type: "system",
-      content: "Trading Assistant initialized. Monitoring market conditions...",
+      content: "This assistant shares educational market insights and is not financial advice.",
       timestamp: new Date(),
     },
     {
       id: "2",
       type: "assistant",
-      content:
-        "Good morning! I'm analyzing current market conditions. SPY is showing bullish momentum with volume confirmation. Consider watching for pullback entries.",
+      content: `${RISK_REMINDER} Good morning! I'm watching the market. SPY's price is climbing with strong trading activity. You might watch for price pullbacks before buying.`,
       timestamp: new Date(),
       actionType: "alert",
       symbol: "SPY",
@@ -67,14 +68,14 @@ export function AITradingAssistant() {
       const symbols = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA", "MSFT"]
       const actions = ["buy", "sell", "hold"] as const
       const reasons = [
-        "Technical breakout detected",
-        "Volume surge with price confirmation",
-        "RSI oversold condition",
-        "Support level holding strong",
-        "Resistance level broken",
-        "Moving average crossover",
-        "Unusual options activity",
-        "Earnings momentum play",
+        "Price moved above its recent range",
+        "Trading volume is high",
+        "Price fell quickly and may bounce",
+        "Price staying above a recent low",
+        "Price crossed above a recent high",
+        "Short-term average moved above long-term",
+        "Many traders buying call options",
+        "Recent earnings were strong",
       ]
 
       const symbol = symbols[Math.floor(Math.random() * symbols.length)]
@@ -98,7 +99,7 @@ export function AITradingAssistant() {
         const message: AssistantMessage = {
           id: Date.now().toString(),
           type: "assistant",
-          content: `🎯 High confidence ${action.toUpperCase()} signal for ${symbol} at $${signal.price.toFixed(2)}. ${reason}. Confidence: ${confidence}%`,
+          content: `${RISK_REMINDER} 🎯 Strong ${action.toUpperCase()} signal for ${symbol} at $${signal.price.toFixed(2)}. ${reason}. Confidence: ${confidence}%`,
           timestamp: new Date(),
           actionType: action,
           symbol,
@@ -129,11 +130,11 @@ export function AITradingAssistant() {
     // Simulate AI response
     setTimeout(() => {
       const responses = [
-        "Based on current market conditions, I recommend monitoring SPY for a potential breakout above $446. Volume is increasing.",
-        "AAPL is showing strong support at $185. Consider a long position with a stop at $183.",
-        "Market volatility is elevated. Consider reducing position sizes and using tighter stops.",
-        "TSLA options flow suggests bullish sentiment. Watch for momentum above $245.",
-        "The VIX is declining, indicating reduced fear. This could support continued upward movement in equities.",
+        `${RISK_REMINDER} SPY might rise above $446 if trading volume stays strong.`,
+        `${RISK_REMINDER} AAPL is holding near $185. You could buy above that price and limit losses below $183.`,
+        `${RISK_REMINDER} The market is jumpy. Smaller positions and tighter loss limits may help.`,
+        `${RISK_REMINDER} TSLA shows more buyers. A move above $245 could continue upward.`,
+        `${RISK_REMINDER} The fear index (VIX) is falling, which may help stocks climb.`,
       ]
 
       const assistantMessage: AssistantMessage = {
@@ -163,12 +164,12 @@ export function AITradingAssistant() {
 
   return (
     <div className="space-y-4">
-      {/* Live Signals */}
+      {/* Market Alerts */}
       <Card className="trading-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
             <Zap className="h-4 w-4" />
-            Live Signals
+            Market Alerts
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -281,7 +282,7 @@ export function AITradingAssistant() {
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about market conditions, strategies, or specific symbols..."
+                placeholder="Ask about markets or specific stocks..."
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 className="text-xs"
               />

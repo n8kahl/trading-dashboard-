@@ -46,3 +46,23 @@ def test_assistant_exec_unknown_op():
     detail = response.json().get("detail")
     assert detail.get("error") == "unknown_op"
     assert detail.get("op") == "does.not.exist"
+
+
+def test_assistant_exec_does_not_share_args_between_requests(monkeypatch):
+    from app.routers import assistant_simple
+
+    captured_payloads = []
+
+    async def stub(payload):
+        captured_payloads.append(dict(payload))
+        payload["mutated"] = True
+        return {"ok": True}
+
+    monkeypatch.setitem(assistant_simple.EXEC_HANDLERS, "options.pick", stub)
+
+    first = client.post("/api/v1/assistant/exec", json={"op": "options.pick"})
+    assert first.status_code == 200
+    second = client.post("/api/v1/assistant/exec", json={"op": "options.pick"})
+    assert second.status_code == 200
+
+    assert captured_payloads == [{}, {}]

@@ -44,6 +44,25 @@ The backend reads the following environment variables:
 - `RISK_MIN_SCORE`
 - `RISK_MAX_DOLLARS`
 
+### Alerts Polling
+
+Background price alerts are handled by a single polling loop implemented in
+`app.services.poller`. The loop checks active alerts every
+`ALERT_POLL_SEC` seconds and fetches quotes from Polygon. Requests are
+rate limited via a shared `RateLimiter` utility and database work is
+performed inside a managed session. The poller can be started with:
+
+```python
+from app.services.poller import alerts_poller
+asyncio.run(alerts_poller())
+```
+
+Environment variables:
+
+- `ALERT_POLL_SEC` – seconds between polling passes (default `30`).
+- `POLL_API_RATE` – maximum quote requests per second (default `5`).
+- `POLYGON_API_KEY` – API key used for quote requests.
+
 `/api/v1/diag/config` reports whether each value is loaded.
 
 ## WebSocket

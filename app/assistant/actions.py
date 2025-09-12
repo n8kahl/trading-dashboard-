@@ -7,7 +7,7 @@ import inspect
 
 # Import your domain functions directly (no HTTP roundtrips)
 from app.services.options_live_tradier import (
-    pick_live_contracts_tradier,
+    pick_live_contracts,
     fetch_expirations as _fetch_expirations,
     fetch_chain as _fetch_chain,
 )
@@ -33,7 +33,7 @@ class OptionsChainArgs(BaseModel):
 
 # ---------- Exec handlers ----------
 async def _op_options_pick(args: OptionsPickArgs) -> Dict[str, Any]:
-    return await pick_live_contracts_tradier(args.symbol, args.side, args.horizon, args.n)
+    return await pick_live_contracts(args.symbol, args.side, args.horizon, args.n)
 
 
 async def _op_options_expirations(args: OptionsExpirationsArgs) -> Dict[str, Any]:

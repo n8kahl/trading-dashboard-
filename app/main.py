@@ -10,7 +10,7 @@ from app.core.ws import websocket_endpoint, start_ws
 from app.core.risk import start_risk_engine
 from app.security import require_api_key
 
-app = FastAPI(lifespan=lifespan, lifespan=lifespan, title="Trading Assistant", version="0.0.1")
+app = FastAPI(lifespan=lifespan,  title="Trading Assistant", version="0.0.1")
 
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware

@@ -41,7 +41,7 @@ class OptionsPickResponse(BaseModel):
     source: Optional[str] = None  # NEW: "tradier" or "polygon"
 
 # ---------- Config ----------
-TRADIER_TOKEN = os.getenv("TRADIER_TOKEN", os.getenv("TRADIER_ACCESS_TOKEN", "")).strip()
+TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
 POLYGON_KEY = os.getenv("POLYGON_API_KEY", "").strip()
 ENV_NOTE = "delayed via Tradier Sandbox; Polygon fallback only if Tradier empty/unavailable"
 
@@ -302,10 +302,10 @@ async def options_pick(
     Fallback: Polygon reference when Tradier is unavailable or empty (unless prefer='tradier').
     """
     force_tradier = (req.prefer == "tradier")
-    if not TRADIER_TOKEN and not force_tradier:
+    if not TRADIER_ACCESS_TOKEN and not force_tradier:
         if POLYGON_KEY:
             return await _fallback_polygon(req.symbol, req.side, req.horizon, req.n)
-        raise HTTPException(status_code=400, detail="tradier_error: TRADIER_TOKEN not set")
+        raise HTTPException(status_code=400, detail="tradier_error: TRADIER_ACCESS_TOKEN not set")
 
     # Try Tradier first (or force it)
     try:

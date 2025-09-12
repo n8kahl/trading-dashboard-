@@ -4,12 +4,12 @@ import httpx
 from app.integrations.tradier import TradierClient
 
 TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
-TRADIER_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
+TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
 POLYGON_KEY = os.getenv("POLYGON_API_KEY")
 APP_TZ = os.getenv("APP_TIMEZONE", "America/Chicago")
 
 _http_timeout = httpx.Timeout(20.0, connect=10.0)
-_headers_tradier = {"Authorization": f"Bearer {TRADIER_TOKEN}", "Accept": "application/json"} if TRADIER_TOKEN else {}
+_headers_tradier = {"Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}", "Accept": "application/json"} if TRADIER_ACCESS_TOKEN else {}
 
 _tradier_client: Optional[TradierClient] = None
 
@@ -45,7 +45,7 @@ async def _aget_json(url: str, headers: Dict[str,str] = None, params: Dict[str,A
 # ----- Quotes (prefer Tradier; fallback Polygon daily close) -----
 async def get_last_price(symbol: str, client: Optional[TradierClient] = None) -> Optional[float]:
     # Tradier real/15-min delayed last
-    if TRADIER_TOKEN:
+    if TRADIER_ACCESS_TOKEN:
         quotes = await _tradier(client).get_quotes([symbol])
         q = quotes.get(symbol) or {}
         last = q.get("last") or q.get("close") or q.get("bid") or q.get("ask")

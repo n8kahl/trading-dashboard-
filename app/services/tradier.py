@@ -3,10 +3,10 @@ from typing import Dict, Any, List, Optional
 import httpx
 
 TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
-TRADIER_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
+TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
 
 HDRS = {
-    "Authorization": f"Bearer {TRADIER_TOKEN}" if TRADIER_TOKEN else "",
+    "Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}" if TRADIER_ACCESS_TOKEN else "",
     "Accept": "application/json"
 }
 
@@ -62,7 +62,7 @@ def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
     if not symbols:
         return out
 
-    token = os.getenv("TRADIER_TOKEN") or os.getenv("TRADIER_ACCESS_TOKEN") or ""
+    token = os.getenv("TRADIER_ACCESS_TOKEN") or ""
     if not token:
         return out
 

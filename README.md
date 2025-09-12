@@ -34,7 +34,7 @@ Continue building your app on:
 The backend reads the following environment variables:
 
 - `TRADIER_BASE` – Tradier API base URL (defaults to sandbox)
-- `TRADIER_TOKEN` – Tradier access token
+- `TRADIER_ACCESS_TOKEN` – Tradier access token
 - `POLYGON_API_KEY` – optional key for Polygon quotes
 - `DATA_MODE`
 - `WS_PING_SEC`

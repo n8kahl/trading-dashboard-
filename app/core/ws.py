@@ -1,6 +1,7 @@
 import asyncio
 from typing import List
 from fastapi import WebSocket, WebSocketDisconnect
+from app.security import API_KEY
 import os
 
 WS_PING_SEC = int(os.getenv("WS_PING_SEC", "20"))
@@ -38,6 +39,11 @@ class WSManager:
 manager = WSManager()
 
 async def websocket_endpoint(ws: WebSocket) -> None:
+    if API_KEY:
+        token = ws.query_params.get("api_key")
+        if token != API_KEY:
+            await ws.close(code=1008)
+            return
     await manager.connect(ws)
     try:
         while True:

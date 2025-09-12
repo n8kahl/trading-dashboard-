@@ -1,10 +1,11 @@
 import importlib
 import logging
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from app.services.providers import close_tradier_client
 from app.core.ws import websocket_endpoint, start_ws
 from app.core.risk import start_risk_engine
+from app.security import require_api_key
 
 app = FastAPI(title="Trading Assistant", version="0.0.1")
 
@@ -40,13 +41,15 @@ _mounted_modules = set()
 logger = logging.getLogger(__name__)
 
 
-def _mount(module: str, attr: str = "router", prefix: str = "/api/v1"):
+def _mount(module: str, attr: str = "router", prefix: str = "/api/v1", secure: bool = False):
     if module in _mounted_modules:
         logger.warning("[boot] %s already mounted, skipping", module)
         return
     try:
         mod = importlib.import_module(module)
         r = getattr(mod, attr)
+        if secure:
+            r.dependencies = [Depends(require_api_key), *(r.dependencies or [])]
         app.include_router(r, prefix=prefix)
         _mounted_modules.add(module)
         logger.info("[boot] mounted %s", module)
@@ -57,17 +60,19 @@ def _mount(module: str, attr: str = "router", prefix: str = "/api/v1"):
 _mount("app.routers.diag")           # if present in your repo
 _mount("app.routers.diag_config")    # if present
 _mount("app.routers.screener")       # if present
-_mount("app.routers.options")        # we just created this
+_mount("app.routers.options", secure=True)        # we just created this
 _mount("app.routers.alerts")         # if present
 _mount("app.routers.plan")           # if present
 _mount("app.routers.sizing")         # if present
 _mount("app.routers.admin")          # if present
-_mount("app.routers.broker")         # new broker routes
-_mount("app.routers.auto")           # auto-trade
+_mount("app.routers.broker", secure=True)         # new broker routes
+_mount("app.routers.broker_tradier", secure=True) # tradier broker routes
+_mount("app.routers.auto", secure=True)           # auto-trade
 _mount("app.routers.stream")         # stream snapshot
+_mount("app.routers.market_stream", secure=True)  # market stream control
 
 # assistant router (simple)
-_mount("app.routers.assistant_simple")
+_mount("app.routers.assistant_simple", secure=True)
 
 # websocket endpoint
 app.add_api_websocket_route("/ws", websocket_endpoint)

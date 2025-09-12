@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { config } from "@/lib/config"
 import { useWebSocket } from "./use-websocket"
 
 interface MarketData {
@@ -25,8 +26,15 @@ export function useLiveMarketData(symbols: string[] = []) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const defaultUrl = () => {
+    if (typeof window === "undefined") return ""
+    const proto = window.location.protocol === "https:" ? "wss" : "ws"
+    return `${proto}://${window.location.host}/ws/market`
+  }
+  const wsUrl = config.websocket.url || defaultUrl()
+
   const { isConnected, sendMessage, connectionStatus } = useWebSocket(
-    `wss://${process.env.NEXT_PUBLIC_API_BASE_URL || "tradingassistantmcpready-production.up.railway.app"}/ws/market`,
+    wsUrl,
     {
       onMessage: (message) => {
         if (message.data.type === "market_data") {

@@ -3,8 +3,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Literal, List, Optional, Dict, Any, AsyncIterator
 import os, math, asyncio, datetime as dt
+import logging
 from app.integrations.tradier import TradierClient
 import httpx
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/options", tags=["options"])
 
@@ -71,7 +74,7 @@ def _safe_float(x: Any) -> Optional[float]:
         if math.isfinite(f):
             return f
     except Exception:
-        pass
+        logger.exception("failed to parse float")
     return None
 
 def _safe_int(x: Any) -> Optional[int]:

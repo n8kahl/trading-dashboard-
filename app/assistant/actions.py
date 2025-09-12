@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
 from datetime import date
+import inspect
 
 # Import your domain functions directly (no HTTP roundtrips)
 from app.services.options_live_tradier import (
@@ -31,15 +32,17 @@ class OptionsChainArgs(BaseModel):
     limit: int = Field(1000, ge=1, le=2000)
 
 # ---------- Exec handlers ----------
-def _op_options_pick(args: OptionsPickArgs) -> Dict[str, Any]:
-    return pick_live_contracts_tradier(args.symbol, args.side, args.horizon, args.n)
+async def _op_options_pick(args: OptionsPickArgs) -> Dict[str, Any]:
+    return await pick_live_contracts_tradier(args.symbol, args.side, args.horizon, args.n)
 
-def _op_options_expirations(args: OptionsExpirationsArgs) -> Dict[str, Any]:
-    exps = _fetch_expirations(args.symbol)
+
+async def _op_options_expirations(args: OptionsExpirationsArgs) -> Dict[str, Any]:
+    exps = await _fetch_expirations(args.symbol)
     return {"ok": True, "symbol": args.symbol.upper(), "expirations": [d.isoformat() for d in exps]}
 
-def _op_options_chain(args: OptionsChainArgs) -> Dict[str, Any]:
-    items = _fetch_chain(args.symbol, args.expiration)
+
+async def _op_options_chain(args: OptionsChainArgs) -> Dict[str, Any]:
+    items = await _fetch_chain(args.symbol, args.expiration)
     # normalize + filter + cap
     items = items if isinstance(items, list) else []
     if args.side:
@@ -69,6 +72,7 @@ class ActionSpec(BaseModel):
     title: str
     description: str
     args_model: type[BaseModel]
+    handler: Optional[Callable[..., Any]] = None
 
 REGISTRY: Dict[str, ActionSpec] = {
     "options.pick": ActionSpec(
@@ -76,18 +80,21 @@ REGISTRY: Dict[str, ActionSpec] = {
         title="Pick closest-to-ATM options (delayed)",
         description="Return N contracts nearest to ATM for a ticker/side/horizon using Tradier Sandbox.",
         args_model=OptionsPickArgs,
+        handler=_op_options_pick,
     ),
     "options.expirations": ActionSpec(
         op="options.expirations",
         title="List option expirations (delayed)",
         description="Return available expirations for a ticker using Tradier Sandbox.",
         args_model=OptionsExpirationsArgs,
+        handler=_op_options_expirations,
     ),
     "options.chain": ActionSpec(
         op="options.chain",
         title="Get options chain (delayed)",
         description="Return option contracts for a ticker+expiration (optionally filtered by call/put) using Tradier Sandbox.",
         args_model=OptionsChainArgs,
+        handler=_op_options_chain,
     ),
 }
 
@@ -106,7 +113,7 @@ def list_actions() -> List[Dict[str, Any]]:
         })
     return out
 
-def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if op not in REGISTRY:
         return {"ok": False, "error": "unknown_op", "detail": f"Unknown op '{op}'"}
     spec = REGISTRY[op]
@@ -117,11 +124,11 @@ def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "validation_error", "detail": ve.errors()}
     # dispatch
     if op == "options.pick":
-        return _op_options_pick(parsed)
+        return await _op_options_pick(parsed)
     if op == "options.expirations":
-        return _op_options_expirations(parsed)
+        return await _op_options_expirations(parsed)
     if op == "options.chain":
-        return _op_options_chain(parsed)
+        return await _op_options_chain(parsed)
     return {"ok": False, "error": "unimplemented", "detail": op}
 # === Assistant adapters for core endpoints (HTTP loopback) ===
 import os, json, urllib.request
@@ -218,12 +225,13 @@ REGISTRY["screener.watchlist_ranked"] = ActionSpec(
 from typing import Any, Dict
 from pydantic import ValidationError
 
-def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
+
+async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generic executor:
       - looks up REGISTRY[op]
       - validates raw_args with args_model (if present)
-      - calls handler(**validated_args)
+      - calls handler(**validated_args) and awaits if needed
     Falls back to explicit 400-style validation errors so GPT can self-correct.
     """
     spec = REGISTRY.get(op)
@@ -241,6 +249,8 @@ def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
         if not handler:
             return {"ok": False, "error": "missing_handler", "detail": op}
         out = handler(**args) if args else handler()
+        if inspect.isawaitable(out):
+            out = await out
         # Normalize simple truthy responses
         if isinstance(out, dict):
             return out
@@ -396,7 +406,7 @@ def list_actions() -> Dict[str, Any]:
     return {"ok": True, "actions": legacy + _extra_actions_schema()}
 
 # --- Unified executor: try extra first, then legacy ---
-def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
     meta = _ASSISTANT_EXTRA_OPS.get(op)
     if meta:
         model = meta["args_model"]
@@ -404,6 +414,8 @@ def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
             parsed = model(**(raw_args or {}))
             args = parsed.model_dump()
             out = meta["handler"](**args)
+            if inspect.isawaitable(out):
+                out = await out
             if isinstance(out, dict):
                 return out
             return {"ok": True, "data": out}
@@ -415,7 +427,10 @@ def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
     # fallback to legacy behavior (options.* and whatever else existed before)
     if callable(_LEGACY_EXECUTE_ACTION):
         try:
-            return _LEGACY_EXECUTE_ACTION(op, raw_args or {})
+            out = _LEGACY_EXECUTE_ACTION(op, raw_args or {})
+            if inspect.isawaitable(out):
+                out = await out
+            return out
         except Exception as e:
             return {"ok": False, "error": "exec_error", "detail": str(e)}
 

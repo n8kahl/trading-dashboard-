@@ -46,7 +46,7 @@ async def assistant_exec(req: Request):
         raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_request", "detail": str(e)})
 
     try:
-        result = actions_mod.execute_action(body.op, body.args or {})
+        result = await actions_mod.execute_action(body.op, body.args or {})
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail={"ok": False, "error": "validation_error", "detail": ve.errors()})
     except Exception as e:

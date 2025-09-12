@@ -16,8 +16,8 @@ def _as_list(x):
     return x if isinstance(x, list) else [x]
 
 # ---------- Underlying (delayed) ----------
-def fetch_spot(ticker: str) -> float:
-    j = get("/v1/markets/quotes", {"symbols": ticker.upper()})
+async def fetch_spot(ticker: str) -> float:
+    j = await get("/v1/markets/quotes", {"symbols": ticker.upper()})
     q = (j.get("quotes") or {}).get("quote")
     if not q:
         raise TradierError(f"No quote for {ticker}")
@@ -32,8 +32,8 @@ def fetch_spot(ticker: str) -> float:
     return float(last)
 
 # ---------- Expirations ----------
-def fetch_expirations(ticker: str) -> List[date]:
-    j = get("/v1/markets/options/expirations", {
+async def fetch_expirations(ticker: str) -> List[date]:
+    j = await get("/v1/markets/options/expirations", {
         "symbol": ticker.upper(),
         "includeAllRoots": "true",
         "strikes": "false",
@@ -49,8 +49,8 @@ def fetch_expirations(ticker: str) -> List[date]:
             continue
     return sorted(out)
 
-def choose_expiration(ticker: str, horizon: Horizon) -> date:
-    exps = fetch_expirations(ticker)
+async def choose_expiration(ticker: str, horizon: Horizon) -> date:
+    exps = await fetch_expirations(ticker)
     if not exps:
         raise TradierError(f"No expirations for {ticker}")
     today = _today_utc()
@@ -74,8 +74,8 @@ def choose_expiration(ticker: str, horizon: Horizon) -> date:
     return exps[-1]
 
 # ---------- Chains & Quotes ----------
-def fetch_chain(ticker: str, exp: date) -> List[Dict[str, Any]]:
-    j = get("/v1/markets/options/chains", {
+async def fetch_chain(ticker: str, exp: date) -> List[Dict[str, Any]]:
+    j = await get("/v1/markets/options/chains", {
         "symbol": ticker.upper(),
         "expiration": exp.isoformat(),
         # greeks=false keeps payload smaller; add &greeks=true later if needed
@@ -83,11 +83,11 @@ def fetch_chain(ticker: str, exp: date) -> List[Dict[str, Any]]:
     opts = (j.get("options") or {}).get("option")
     return _as_list(opts)
 
-def fetch_option_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+async def fetch_option_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     if not symbols:
         return {}
     # Batch quote — Tradier accepts comma-separated up to large counts
-    j = get("/v1/markets/quotes", {"symbols": ",".join(symbols)})
+    j = await get("/v1/markets/quotes", {"symbols": ",".join(symbols)})
     q = (j.get("quotes") or {}).get("quote")
     items = _as_list(q)
     out: Dict[str, Dict[str, Any]] = {}
@@ -99,11 +99,11 @@ def fetch_option_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     return out
 
 # ---------- Pick closest-to-ATM N for a side ----------
-def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
+async def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
     cp = "call" if "call" in side else "put"
-    spot = fetch_spot(ticker)
-    exp = choose_expiration(ticker, horizon)
-    chain = fetch_chain(ticker, exp)
+    spot = await fetch_spot(ticker)
+    exp = await choose_expiration(ticker, horizon)
+    chain = await fetch_chain(ticker, exp)
     if not chain:
         raise TradierError("No chain returned")
 
@@ -121,7 +121,7 @@ def pick_live_contracts_tradier(ticker: str, side: Side, horizon: Horizon, n: in
 
     # fetch quotes for these option symbols to get bid/ask/mark
     syms = [o.get("symbol") for o in picks_raw if o.get("symbol")]
-    qmap = fetch_option_quotes(syms)
+    qmap = await fetch_option_quotes(syms)
 
     picks = []
     for o in picks_raw:

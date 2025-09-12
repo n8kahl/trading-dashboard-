@@ -1,7 +1,7 @@
-import os
 from fastapi import APIRouter, HTTPException
 import httpx
 
+from app.core.settings import settings
 from app.services.tradier_trading import (
     StrategyOrder,
     place_order as tradier_place_order,
@@ -9,15 +9,12 @@ from app.services.tradier_trading import (
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
-TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com").rstrip("/")
-TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
-TRADIER_ACCOUNT_ID = os.getenv("TRADIER_ACCOUNT_ID")
-
 def _headers():
-    if not TRADIER_ACCESS_TOKEN:
+    token = settings.TRADIER_ACCESS_TOKEN
+    if not token:
         raise HTTPException(status_code=500, detail="TRADIER_ACCESS_TOKEN not set")
     return {
-        "Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "User-Agent": "trading-assistant/1.0"
     }
@@ -27,19 +24,19 @@ async def account_overview():
     """
     Returns balances + positions for sizing guidance.
     """
-    if not TRADIER_ACCOUNT_ID:
+    if not settings.TRADIER_ACCOUNT_ID:
         raise HTTPException(status_code=500, detail="TRADIER_ACCOUNT_ID not set")
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         # Balances
-        bal_url = f"{TRADIER_BASE}/v1/accounts/{TRADIER_ACCOUNT_ID}/balances"
+        bal_url = f"{settings.tradier_base_url}/v1/accounts/{settings.TRADIER_ACCOUNT_ID}/balances"
         r1 = await client.get(bal_url, headers=_headers())
         if r1.status_code >= 300:
             raise HTTPException(status_code=r1.status_code, detail=f"Tradier balances error: {r1.text}")
         balances = r1.json().get("balances", {})
 
         # Positions (ok if empty)
-        pos_url = f"{TRADIER_BASE}/v1/accounts/{TRADIER_ACCOUNT_ID}/positions"
+        pos_url = f"{settings.tradier_base_url}/v1/accounts/{settings.TRADIER_ACCOUNT_ID}/positions"
         r2 = await client.get(pos_url, headers=_headers())
         if r2.status_code >= 300:
             # Some sandbox/envs have no positions API — don’t fail the whole call
@@ -59,8 +56,8 @@ async def account_overview():
 
         return {
             "ok": True,
-            "env": "sandbox" if "sandbox" in TRADIER_BASE else "live",
-            "account_id": TRADIER_ACCOUNT_ID,
+            "env": "sandbox" if "sandbox" in settings.tradier_base_url else "live",
+            "account_id": settings.TRADIER_ACCOUNT_ID,
             "sizing": sizing,
             "positions": positions,
             "raw": {"balances": balances}  # keep full balances for now (easy debugging)

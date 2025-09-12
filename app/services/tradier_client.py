@@ -1,23 +1,24 @@
-import os, httpx
+import httpx
 from typing import Any, Dict
 
-_BASE = os.getenv("TRADIER_BASE", "").rstrip("/")
-_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
+from app.core.settings import settings
 
 class TradierError(RuntimeError): ...
 
 
 def _client() -> httpx.AsyncClient:
-    if not _BASE:
+    base = settings.tradier_base_url
+    token = settings.TRADIER_ACCESS_TOKEN or ""
+    if not base:
         raise TradierError("TRADIER_BASE not set")
-    if not _TOKEN:
+    if not token:
         raise TradierError("TRADIER_ACCESS_TOKEN not set")
     headers = {
-        "Authorization": f"Bearer {_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "User-Agent": "ta/1.0",
     }
-    return httpx.AsyncClient(base_url=_BASE, headers=headers, timeout=12.0)
+    return httpx.AsyncClient(base_url=base, headers=headers, timeout=12.0)
 
 
 async def get(path: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:

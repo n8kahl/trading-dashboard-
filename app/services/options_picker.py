@@ -1,4 +1,3 @@
-import os
 import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
@@ -6,17 +5,17 @@ from datetime import datetime, timezone, date
 
 import httpx
 
+from app.core.settings import settings
 from app.utils.timebox import parse_expiration, days_to
 
-TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com").rstrip("/")
-TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
-TRADIER_ACCOUNT_ID = os.getenv("TRADIER_ACCOUNT_ID")
 
-HEADERS = {
-    "Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}" if TRADIER_ACCESS_TOKEN else "",
-    "Accept": "application/json",
-    "User-Agent": "trading-assistant/1.0"
-}
+def _headers() -> Dict[str, str]:
+    token = settings.TRADIER_ACCESS_TOKEN
+    return {
+        "Authorization": f"Bearer {token}" if token else "",
+        "Accept": "application/json",
+        "User-Agent": "trading-assistant/1.0",
+    }
 
 @dataclass
 class PickerConfig:
@@ -80,13 +79,13 @@ def _delta_band_score(opt: Dict[str, Any], side: str) -> float:
         return max(0.0, (1.0 - (d - target_high) / (0.6 - target_high)) * 0.7) if d < 0.6 else 0.1
 
 async def _tradier_json(client: httpx.AsyncClient, url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    r = await client.get(url, headers=HEADERS, params=params or {}, timeout=20.0)
+    r = await client.get(url, headers=_headers(), params=params or {}, timeout=20.0)
     if r.status_code >= 300:
         raise RuntimeError(f"Tradier GET {url} {r.status_code}: {r.text}")
     return r.json()
 
 async def _expirations(client: httpx.AsyncClient, symbol: str) -> List[date]:
-    url = f"{TRADIER_BASE}/v1/markets/options/expirations"
+    url = f"{settings.tradier_base_url}/v1/markets/options/expirations"
     js = await _tradier_json(client, url, {"symbol": symbol, "includeAllRoots": "true", "strikes": "false"})
     exps = js.get("expirations", {}).get("date", [])
     # result may be list or single string
@@ -95,7 +94,7 @@ async def _expirations(client: httpx.AsyncClient, symbol: str) -> List[date]:
     return [parse_expiration(s) for s in exps]
 
 async def _chains_for_expiry(client: httpx.AsyncClient, symbol: str, expiry: date) -> List[Dict[str, Any]]:
-    url = f"{TRADIER_BASE}/v1/markets/options/chains"
+    url = f"{settings.tradier_base_url}/v1/markets/options/chains"
     js = await _tradier_json(client, url, {"symbol": symbol, "expiration": expiry.isoformat(), "greeks": "true"})
     # Tradier shape: {"options": {"option": [...]}}
     opts = js.get("options", {}).get("option", [])
@@ -167,7 +166,7 @@ def _rank_contracts(options: List[Dict[str, Any]], cfg: PickerConfig, dte_map: D
     return [{"score": round(s, 6), **item} for s, item in ranked]
     
 async def pick_options(symbol: str, side: str, dte_min: int, dte_max: int, limit: int, overrides: Dict[str, float] | None = None) -> Dict[str, Any]:
-    if not TRADIER_ACCESS_TOKEN:
+    if not settings.TRADIER_ACCESS_TOKEN:
         return {"ok": False, "error": "TRADIER_ACCESS_TOKEN not set"}
 
     cfg = PickerConfig(side=side, dte_min=dte_min, dte_max=dte_max, limit=limit)

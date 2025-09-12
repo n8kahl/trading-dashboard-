@@ -4,14 +4,14 @@ import httpx, os, datetime as dt
 
 # --- Tradier daily history ---
 TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
-TRADIER_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
+TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
 
 async def tradier_daily_close(symbol: str) -> Optional[float]:
-    if not TRADIER_TOKEN:
+    if not TRADIER_ACCESS_TOKEN:
         return None
     url = f"{TRADIER_BASE}/v1/markets/history"
     params = {"symbol": symbol.upper()}
-    hdrs = {"Authorization": f"Bearer {TRADIER_TOKEN}", "Accept": "application/json"}
+    hdrs = {"Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(url, params=params, headers=hdrs)
         if r.status_code != 200:

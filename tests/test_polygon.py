@@ -19,8 +19,8 @@ def test_last_quote(monkeypatch):
     monkeypatch.setattr(
         polygon,
         "_client",
-        lambda: httpx.Client(transport=transport, base_url="https://api.polygon.io"),
+        lambda: httpx.AsyncClient(transport=transport, base_url="https://api.polygon.io"),
     )
 
-    result = polygon.last_quote("AAPL")
+    result = asyncio.run(polygon.last_quote("AAPL"))
     assert result == {"ok": True, "symbol": "AAPL", "last": 123.4, "ts": 169}

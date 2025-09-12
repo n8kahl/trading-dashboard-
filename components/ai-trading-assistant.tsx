@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,18 +9,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAssistantConversation } from "@/hooks/useAssistantConversation"
+import type { AssistantMessage } from "@/lib/types"
 import { useTradingAPI } from "@/hooks/use-trading-api"
 import { useErrorHandler } from "@/hooks/use-error-handler"
-
-interface AssistantMessage {
-  id: string
-  type: "user" | "assistant" | "system"
-  content: string
-  timestamp: Date
-  actionType?: "buy" | "sell" | "hold" | "alert"
-  symbol?: string
-  confidence?: number
-}
 
 interface TradingSignal {
   symbol: string
@@ -32,29 +24,17 @@ interface TradingSignal {
 }
 
 export function AITradingAssistant() {
-  const [messages, setMessages] = useState<AssistantMessage[]>([
-    {
-      id: "1",
-      type: "system",
-      content: "Trading Assistant initialized. Monitoring market conditions...",
-      timestamp: new Date(),
-    },
-    {
-      id: "2",
-      type: "assistant",
-      content:
-        "Good morning! I'm analyzing current market conditions. SPY is showing bullish momentum with volume confirmation. Consider watching for pullback entries.",
-      timestamp: new Date(),
-      actionType: "alert",
-      symbol: "SPY",
-      confidence: 75,
-    },
-  ])
-
+  const {
+    messages,
+    setMessages,
+    isTyping,
+    setIsTyping,
+    retryMessage,
+    setRetryMessage,
+    addSignalMessage,
+  } = useAssistantConversation()
   const [input, setInput] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
   const [signals, setSignals] = useState<TradingSignal[]>([])
-  const [retryMessage, setRetryMessage] = useState<AssistantMessage | null>(null)
   const { executeAssistantAction } = useTradingAPI()
   const { handleError } = useErrorHandler()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -109,7 +89,7 @@ export function AITradingAssistant() {
           symbol,
           confidence,
         }
-        setMessages((prev) => [...prev, message])
+        addSignalMessage(message)
       }
     }
 
@@ -117,42 +97,45 @@ export function AITradingAssistant() {
     return () => clearInterval(interval)
   }, [])
 
-  const sendMessage = async (retry?: AssistantMessage) => {
-    const content = retry ? retry.content : input
-    if (!content.trim()) return
+  const sendMessage = useCallback(
+    async (retry?: AssistantMessage) => {
+      const content = retry ? retry.content : input
+      if (!content.trim()) return
 
-    const userMessage: AssistantMessage =
-      retry ?? {
-        id: Date.now().toString(),
-        type: "user",
-        content,
-        timestamp: new Date(),
+      const userMessage: AssistantMessage =
+        retry ?? {
+          id: Date.now().toString(),
+          type: "user",
+          content,
+          timestamp: new Date(),
+        }
+
+      if (!retry) {
+        setMessages((prev) => [...prev, userMessage])
+        setInput("")
       }
 
-    if (!retry) {
-      setMessages((prev) => [...prev, userMessage])
-      setInput("")
-    }
+      setIsTyping(true)
 
-    setIsTyping(true)
-
-    try {
-      const result = await executeAssistantAction("chat", { message: content })
-      const assistantMessage: AssistantMessage = {
-        id: (Date.now() + 1).toString(),
-        type: "assistant",
-        content: result?.message || "No response",
-        timestamp: new Date(),
+      try {
+        const result = await executeAssistantAction("chat", { message: content })
+        const assistantMessage: AssistantMessage = {
+          id: (Date.now() + 1).toString(),
+          type: "assistant",
+          content: result?.message || "No response",
+          timestamp: new Date(),
+        }
+        setMessages((prev) => [...prev, assistantMessage])
+        setRetryMessage(null)
+      } catch (err) {
+        handleError(err, "sendMessage")
+        setRetryMessage(userMessage)
+      } finally {
+        setIsTyping(false)
       }
-      setMessages((prev) => [...prev, assistantMessage])
-      setRetryMessage(null)
-    } catch (err) {
-      handleError(err, "sendMessage")
-      setRetryMessage(userMessage)
-    } finally {
-      setIsTyping(false)
-    }
-  }
+    },
+    [input, executeAssistantAction, handleError]
+  )
 
   const getActionIcon = (actionType?: string) => {
     switch (actionType) {

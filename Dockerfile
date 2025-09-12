@@ -4,9 +4,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
-
-# minimal deps to boot FastAPI
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx
+# install Python dependencies
+COPY requirements.txt requirements.lock.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements.lock.txt
 
 # copy app code + launcher
 COPY app/ /app/app/

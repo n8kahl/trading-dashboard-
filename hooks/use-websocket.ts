@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
+import { toast } from "sonner"
 
 interface WebSocketMessage {
   type: string
@@ -119,12 +120,17 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   }, [])
 
   const sendMessage = useCallback((message: any) => {
-    if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify(message))
-      return true
+    try {
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify(message))
+        return true
+      }
+      throw new Error("WebSocket not connected")
+    } catch (error) {
+      toast.error("Failed to send message")
+      console.error("[v0] WebSocket send error:", error)
+      return false
     }
-    console.warn("[v0] WebSocket not connected, message not sent")
-    return false
   }, [])
 
   useEffect(() => {

@@ -85,6 +85,9 @@ export function useTradingAPI() {
   }, [])
 
   const executeAssistantAction = useCallback(async (op: string, args: any) => {
+    setIsLoading(true)
+    setError(null)
+
     try {
       const response = await fetch(`/api/proxy?path=${encodeURIComponent("/assistant/exec")}`, {
         method: "POST",
@@ -98,10 +101,14 @@ export function useTradingAPI() {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      return await response.json()
+      const result = await response.json()
+      return result
     } catch (err) {
-      console.error("Failed to execute assistant action:", err)
-      return { ok: false, error: err instanceof Error ? err.message : "Unknown error" }
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred"
+      setError(errorMessage)
+      throw err
+    } finally {
+      setIsLoading(false)
     }
   }, [])
 

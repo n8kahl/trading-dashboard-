@@ -15,10 +15,35 @@ def _num(x, default=None):
         return default
 
 def get_settings() -> Dict[str, Any]:
+    """Return risk settings, honoring legacy env vars when present."""
+
+    # Block trades when analysis band is "unfavorable". Legacy variable
+    # ``RISK_ALLOW_UNFAVORABLE`` (or ``ALLOW_UNFAVORABLE``) inverted this logic.
+    block_env = os.getenv("RISK_BLOCK_UNFAVORABLE")
+    if block_env is None:
+        allow_env = os.getenv("RISK_ALLOW_UNFAVORABLE") or os.getenv("ALLOW_UNFAVORABLE")
+        if allow_env is not None:
+            block_env = "false" if allow_env.lower() == "true" else "true"
+    block_unfavorable = (str(block_env or "true").lower() != "false")
+
+    # Minimum acceptable strategy score. Fallback to legacy names.
+    min_score = _num(
+        os.getenv("RISK_MIN_SCORE")
+        or os.getenv("RISK_SCORE_MIN"),
+        DEFAULTS["min_score"],
+    ) or DEFAULTS["min_score"]
+
+    # Maximum dollar risk per trade. Support legacy ``RISK_MAX_DOLLAR_RISK``.
+    max_dollar_risk = _num(
+        os.getenv("RISK_MAX_DOLLARS")
+        or os.getenv("RISK_MAX_DOLLAR_RISK"),
+        DEFAULTS["max_dollar_risk"],
+    ) or DEFAULTS["max_dollar_risk"]
+
     return {
-        "block_unfavorable": (os.getenv("RISK_BLOCK_UNFAVORABLE", "true").lower() != "false"),
-        "min_score": _num(os.getenv("RISK_MIN_SCORE"), DEFAULTS["min_score"]) or DEFAULTS["min_score"],
-        "max_dollar_risk": _num(os.getenv("RISK_MAX_DOLLARS"), DEFAULTS["max_dollar_risk"]) or DEFAULTS["max_dollar_risk"],
+        "block_unfavorable": block_unfavorable,
+        "min_score": min_score,
+        "max_dollar_risk": max_dollar_risk,
     }
 
 def assess_risk(strategy_id: str, context: Dict[str, Any], analysis: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:

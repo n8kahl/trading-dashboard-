@@ -40,6 +40,9 @@ The backend reads the following environment variables:
 - `WS_PING_SEC`
 - `RISK_MAX_DAILY_R`
 - `RISK_MAX_CONCURRENT`
+- `RISK_BLOCK_UNFAVORABLE`
+- `RISK_MIN_SCORE`
+- `RISK_MAX_DOLLARS`
 
 `/api/v1/diag/config` reports whether each value is loaded.
 

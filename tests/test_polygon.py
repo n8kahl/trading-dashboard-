@@ -1,5 +1,5 @@
 from pathlib import Path
-import sys, importlib, asyncio
+import sys, importlib
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,8 +19,8 @@ def test_last_quote(monkeypatch):
     monkeypatch.setattr(
         polygon,
         "_client",
-        lambda: httpx.AsyncClient(transport=transport, base_url="https://api.polygon.io"),
+        lambda: httpx.Client(transport=transport, base_url="https://api.polygon.io"),
     )
 
-    result = asyncio.run(polygon.last_quote("AAPL"))
+    result = polygon.last_quote("AAPL")
     assert result == {"ok": True, "symbol": "AAPL", "last": 123.4, "ts": 169}

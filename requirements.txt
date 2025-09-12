@@ -1,7 +1,7 @@
 fastapi==0.112.2
 fastmcp==2.12.2
 uvicorn[standard]==0.30.6
-httpx==0.27.2
+httpx==0.28.1
 python-dotenv==1.0.1
 pydantic==2.9.2
 pandas==2.2.2
@@ -13,3 +13,4 @@ tzdata==2025.2
 numpy==1.26.4
 websockets==12.0
 pytz==2024.1
+httpcore===1.0.*

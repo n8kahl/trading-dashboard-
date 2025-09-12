@@ -44,4 +44,5 @@ def test_account_overview_missing_account(monkeypatch):
 
 def test_tradier_batch_quotes_missing_token(monkeypatch):
     monkeypatch.setattr(settings, 'TRADIER_ACCESS_TOKEN', None)
-    assert tradier.tradier_batch_option_quotes(['AAPL']) == {}
+    result = asyncio.run(tradier.tradier_batch_option_quotes(['AAPL']))
+    assert result == {}

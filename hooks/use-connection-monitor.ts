@@ -11,7 +11,7 @@ interface ConnectionState {
 
 export function useConnectionMonitor() {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
-    isOnline: navigator.onLine,
+    isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
     apiHealthy: false,
     lastCheck: 0,
     retryCount: 0,

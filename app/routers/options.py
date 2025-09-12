@@ -225,7 +225,12 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
 
     missing_delta = [oc for oc in prelim if oc.delta is None]
     if missing_delta:
-        tasks = [tc.get_option_greeks(symbol, oc.expiration, oc.strike, oc.option_type) for oc in missing_delta]
+        tasks = [
+            tc.get_option_greeks(
+                symbol, oc.expiration, oc.strike, option_type=oc.option_type
+            )
+            for oc in missing_delta
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for oc, res in zip(missing_delta, results):
             if isinstance(res, Exception):

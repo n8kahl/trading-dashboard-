@@ -124,7 +124,7 @@ class TradierClient:
         return r.json()
 
     async def get_option_greeks(
-        self, symbol: str, expiration: str, strike: float, type: str
+        self, symbol: str, expiration: str, strike: float, option_type: str
     ) -> Dict[str, Any]:
         """Fetch greek data for a specific option contract.
 
@@ -135,7 +135,7 @@ class TradierClient:
             "symbol": symbol,
             "expiration": expiration,
             "strike": strike,
-            "type": type,
+            "type": option_type,
         }
         cid = str(uuid4())
         s = await self._session()

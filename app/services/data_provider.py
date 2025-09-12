@@ -48,7 +48,7 @@ async def fetch_aggregates(symbol: str, timeframe: Literal["day", "minute"], loo
     if not results:
         raise DataError("No bars returned (empty results).")
     # Normalize to arrays
-    o, h, l, c, v, t = [], [], [], [], [], []
+    o, h, low, c, v, t = [], [], [], [], [], []
     for row in results:
         o.append(float(row.get("o", 0)))
         h.append(float(row.get("h", 0)))
@@ -58,11 +58,11 @@ async def fetch_aggregates(symbol: str, timeframe: Literal["day", "minute"], loo
         t.append(int(row.get("t", 0)))  # ms since epoch
     # Keep only last `lookback` bars
     if len(c) > lookback:
-        o, h, l, c, v, t = o[-lookback:], h[-lookback:], l[-lookback:], c[-lookback:], v[-lookback:], t[-lookback:]
+        o, h, low, c, v, t = o[-lookback:], h[-lookback:], low[-lookback:], c[-lookback:], v[-lookback:], t[-lookback:]
     return {
         "open": o,
         "high": h,
-        "low": l,
+        "low": low,
         "close": c,
         "volume": v,
         "ts": t,

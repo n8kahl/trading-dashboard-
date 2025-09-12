@@ -187,7 +187,7 @@ def simulate_long(bars: Dict[str, List[float]], signals: List[bool], cfg: SimCon
 
 
 def run_trend_pullback(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str, Any]:
-    c, h, l, v = bars["close"], bars["high"], bars["low"], bars["volume"]
+    c, h, low, _ = bars["close"], bars["high"], bars["low"], bars["volume"]
     e8, e21, e50 = ema(c, 8), ema(c, 21), ema(c, 50)
     signals = sig_trend_pullback(c, e8, e21, e50)
     res = simulate_long(bars, signals, cfg)
@@ -196,8 +196,8 @@ def run_trend_pullback(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str
 
 
 def run_vwap_reclaim(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str, Any]:
-    c, h, l, v = bars["close"], bars["high"], bars["low"], bars["volume"]
-    vw = vwap(h, l, c, v)
+    c, h, low, v = bars["close"], bars["high"], bars["low"], bars["volume"]
+    vw = vwap(h, low, c, v)
     signals = sig_vwap_reclaim(c, vw, v)
     res = simulate_long(bars, signals, cfg)
     res["data"]["strategy"] = "vwap_reclaim"
@@ -205,15 +205,15 @@ def run_vwap_reclaim(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str, 
 
 
 def run_range_break_retest(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str, Any]:
-    c, h, l, v = bars["close"], bars["high"], bars["low"], bars["volume"]
-    signals = sig_range_break_retest(c, h, l, lookback=20)
+    c, h, low, v = bars["close"], bars["high"], bars["low"], bars["volume"]
+    signals = sig_range_break_retest(c, h, low, lookback=20)
     res = simulate_long(bars, signals, cfg)
     res["data"]["strategy"] = "range_break_retest"
     return res
 
 
 def run_divergence_catch(bars: Dict[str, List[float]], cfg: SimConfig) -> Dict[str, Any]:
-    c, h, l, v = bars["close"], bars["high"], bars["low"], bars["volume"]
+    c, h, low, v = bars["close"], bars["high"], bars["low"], bars["volume"]
     r14 = rsi(c, 14)
     signals = sig_divergence_catch(c, r14, lookback=15)
     res = simulate_long(bars, signals, cfg)

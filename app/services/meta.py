@@ -42,12 +42,12 @@ def _ema(values: List[float], span: int) -> List[float]:
 def _atr(bars: List[Dict[str, Any]], period: int = 14) -> List[float]:
     trs = []
     for i, b in enumerate(bars):
-        h, l, c = b["h"], b["l"], b["c"]
+        h, low = b["h"], b["l"]
         if i == 0:
-            trs.append(h - l)
+            trs.append(h - low)
             continue
         prev_c = bars[i - 1]["c"]
-        tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+        tr = max(h - low, abs(h - prev_c), abs(l - prev_c))
         trs.append(tr)
     # simple EMA for ATR
     return _ema(trs, period)

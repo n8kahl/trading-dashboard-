@@ -24,8 +24,8 @@ def atr_1m(bars: List[Dict[str, Any]], period: int = 14) -> Optional[float]:
     trs = []
     prev_close = float(bars[0].get("c", 0) or 0)
     for b in bars[1:]:
-        h, l, c = map(lambda k: float(b.get(k, 0) or 0), ("h", "l", "c"))
-        tr = max(h - l, abs(h - prev_close), abs(l - prev_close))
+        h, low, c = map(lambda k: float(b.get(k, 0) or 0), ("h", "l", "c"))
+        tr = max(h - lowow, abs(h - prev_close), abs(low - prev_close))
         trs.append(tr)
         prev_close = c
     if len(trs) < period:
@@ -39,7 +39,7 @@ def anchored_vwap(bars: List[Dict[str, Any]], start_idx: int) -> Optional[float]
     num = den = 0.0
     for b in bars[start_idx:]:
         h = float(b.get("h", 0) or 0)
-        l = float(b.get("l", 0) or 0)
+        low = float(b.get("l", 0) or 0)
         c = float(b.get("c", 0) or 0)
         v = float(b.get("v", 0) or 0)
         tp = (h + l + c) / 3.0
@@ -64,7 +64,7 @@ def _resample_n(bars_1m: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
         if len(bucket) == n:
             o = float(bucket[0]["o"])
             h = max(float(x["h"]) for x in bucket)
-            l = min(float(x["l"]) for x in bucket)
+            low = min(float(x["l"]) for x in bucket)
             c = float(bucket[-1]["c"])
             v = sum(float(x.get("v", 0) or 0) for x in bucket)
             out.append({"o": o, "h": h, "l": l, "c": c, "v": v})

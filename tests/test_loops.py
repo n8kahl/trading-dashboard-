@@ -34,13 +34,14 @@ def test_alerts_poller(monkeypatch):
             return DummyResult([])
 
     holder = {}
+
     @contextmanager
-    def dummy_db_session():
+    def dummy_scope():
         db = DummyDB()
         holder["db"] = db
         yield db
 
-    monkeypatch.setattr(poller, "db_session", dummy_db_session)
+    monkeypatch.setattr(poller, "session_scope", dummy_scope)
 
     asyncio.run(poller.alerts_poller(loop_forever=False))
     q = "".join(holder["db"].queries[-1][0:1])

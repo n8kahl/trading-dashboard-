@@ -1,18 +1,21 @@
-import os, datetime as dt
+import datetime as dt
 from typing import Dict, Any, List, Optional
 import httpx
 
-TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
-TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
+from app.core.settings import settings
 
-HDRS = {
-    "Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}" if TRADIER_ACCESS_TOKEN else "",
-    "Accept": "application/json"
-}
+
+def _headers() -> Dict[str, str]:
+    token = settings.TRADIER_ACCESS_TOKEN
+    return {
+        "Authorization": f"Bearer {token}" if token else "",
+        "Accept": "application/json",
+    }
 
 async def _get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    base = settings.tradier_base_url or "https://sandbox.tradier.com"
     async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.get(f"{TRADIER_BASE}{path}", headers=HDRS, params=params)
+        r = await client.get(f"{base}{path}", headers=_headers(), params=params)
         r.raise_for_status()
         return r.json()
 
@@ -57,16 +60,16 @@ def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
       /v1/markets/options/quotes
     Fail-open: returns {} on any error.
     """
-    import os, requests
     out: dict[str, dict] = {}
     if not symbols:
         return out
 
-    token = os.getenv("TRADIER_ACCESS_TOKEN") or ""
+    token = settings.TRADIER_ACCESS_TOKEN or ""
     if not token:
         return out
 
-    base = (os.getenv("TRADIER_BASE") or "https://sandbox.tradier.com").rstrip("/")
+    import requests
+    base = settings.tradier_base_url or "https://sandbox.tradier.com"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -159,8 +162,9 @@ async def submit_order(symbol: str, side: str, qty: int, order_type: str,
     if stop_price is not None:
         body["stop"] = stop_price
     try:
+        base = settings.tradier_base_url or "https://sandbox.tradier.com"
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(f"{TRADIER_BASE}/v1/accounts/orders", headers=HDRS, data=body)
+            r = await client.post(f"{base}/v1/accounts/orders", headers=_headers(), data=body)
             r.raise_for_status()
             js = r.json().get("order", {})
             order = {
@@ -176,8 +180,9 @@ async def submit_order(symbol: str, side: str, qty: int, order_type: str,
 
 async def cancel_order(order_id: str) -> Dict[str, Any]:
     try:
+        base = settings.tradier_base_url or "https://sandbox.tradier.com"
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.delete(f"{TRADIER_BASE}/v1/accounts/orders/{order_id}", headers=HDRS)
+            r = await client.delete(f"{base}/v1/accounts/orders/{order_id}", headers=_headers())
             r.raise_for_status()
         return {"ok": True}
     except Exception as e:

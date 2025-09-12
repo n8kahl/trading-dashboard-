@@ -9,25 +9,12 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-interface AssistantMessage {
-  id: string
-  type: "user" | "assistant" | "system"
-  content: string
-  timestamp: Date
-  actionType?: "buy" | "sell" | "hold" | "alert"
-  symbol?: string
-  confidence?: number
-}
-
-interface TradingSignal {
-  symbol: string
-  action: "buy" | "sell" | "hold"
-  price: number
-  confidence: number
-  reason: string
-  timestamp: Date
-}
+import {
+  AssistantMessage,
+  TradingSignal,
+  createAssistantReply,
+  createSignalMessage,
+} from "@/lib/assistant"
 
 export function AITradingAssistant() {
   const [messages, setMessages] = useState<AssistantMessage[]>([
@@ -35,18 +22,14 @@ export function AITradingAssistant() {
       id: "1",
       type: "system",
       content: "Trading Assistant initialized. Monitoring market conditions...",
+      rationale: "System boot",
       timestamp: new Date(),
     },
-    {
-      id: "2",
-      type: "assistant",
-      content:
-        "Good morning! I'm analyzing current market conditions. SPY is showing bullish momentum with volume confirmation. Consider watching for pullback entries.",
-      timestamp: new Date(),
-      actionType: "alert",
-      symbol: "SPY",
-      confidence: 75,
-    },
+    createAssistantReply(
+      "Good morning! I'm analyzing current market conditions. SPY is showing bullish momentum with volume confirmation. Consider watching for pullback entries.",
+      "Pre-market scan flagged SPY strength.",
+      { id: "2", actionType: "alert", symbol: "SPY", confidence: 75 },
+    ),
   ])
 
   const [input, setInput] = useState("")
@@ -95,16 +78,7 @@ export function AITradingAssistant() {
 
       // Add assistant message for significant signals
       if (confidence > 80) {
-        const message: AssistantMessage = {
-          id: Date.now().toString(),
-          type: "assistant",
-          content: `🎯 High confidence ${action.toUpperCase()} signal for ${symbol} at $${signal.price.toFixed(2)}. ${reason}. Confidence: ${confidence}%`,
-          timestamp: new Date(),
-          actionType: action,
-          symbol,
-          confidence,
-        }
-        setMessages((prev) => [...prev, message])
+        setMessages((prev) => [...prev, createSignalMessage(signal)])
       }
     }
 
@@ -119,6 +93,7 @@ export function AITradingAssistant() {
       id: Date.now().toString(),
       type: "user",
       content: input,
+      rationale: "",
       timestamp: new Date(),
     }
 
@@ -129,19 +104,35 @@ export function AITradingAssistant() {
     // Simulate AI response
     setTimeout(() => {
       const responses = [
-        "Based on current market conditions, I recommend monitoring SPY for a potential breakout above $446. Volume is increasing.",
-        "AAPL is showing strong support at $185. Consider a long position with a stop at $183.",
-        "Market volatility is elevated. Consider reducing position sizes and using tighter stops.",
-        "TSLA options flow suggests bullish sentiment. Watch for momentum above $245.",
-        "The VIX is declining, indicating reduced fear. This could support continued upward movement in equities.",
+        {
+          content:
+            "Based on current market conditions, I recommend monitoring SPY for a potential breakout above $446. Volume is increasing.",
+          rationale: "SPY approaching key resistance with rising volume.",
+        },
+        {
+          content:
+            "AAPL is showing strong support at $185. Consider a long position with a stop at $183.",
+          rationale: "Support at $185 held multiple sessions.",
+        },
+        {
+          content:
+            "Market volatility is elevated. Consider reducing position sizes and using tighter stops.",
+          rationale: "VIX readings indicate higher risk environment.",
+        },
+        {
+          content:
+            "TSLA options flow suggests bullish sentiment. Watch for momentum above $245.",
+          rationale: "Call volume surging near $245 strike.",
+        },
+        {
+          content:
+            "The VIX is declining, indicating reduced fear. This could support continued upward movement in equities.",
+          rationale: "Lower VIX often precedes equity rallies.",
+        },
       ]
 
-      const assistantMessage: AssistantMessage = {
-        id: (Date.now() + 1).toString(),
-        type: "assistant",
-        content: responses[Math.floor(Math.random() * responses.length)],
-        timestamp: new Date(),
-      }
+      const choice = responses[Math.floor(Math.random() * responses.length)]
+      const assistantMessage = createAssistantReply(choice.content, choice.rationale)
 
       setMessages((prev) => [...prev, assistantMessage])
       setIsTyping(false)
@@ -247,6 +238,14 @@ export function AITradingAssistant() {
                             </Badge>
                           )}
                         </div>
+                        {message.type === "assistant" && message.rationale && (
+                          <details className="mt-1">
+                            <summary className="cursor-pointer text-xs text-muted-foreground">
+                              Rationale
+                            </summary>
+                            <p className="mt-1 text-muted-foreground">{message.rationale}</p>
+                          </details>
+                        )}
                       </div>
                     </div>
                   </div>

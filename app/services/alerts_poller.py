@@ -16,8 +16,9 @@ async def _check_once():
         db.execute(delete(Alert).where(Alert.expires_at.is_not(None), Alert.expires_at < now))
         db.commit()
 
-        alerts = db.execute(select(Alert)).scalars().all()
-        if not alerts: return
+        alerts = db.execute(select(Alert).where(Alert.is_active == True)).scalars().all()
+        if not alerts:
+            return
 
         # Group by symbol to avoid duplicate quote calls (simple cache)
         symbols = sorted({a.symbol for a in alerts})
@@ -32,19 +33,19 @@ async def _check_once():
 
         for a in alerts:
             last = last_prices.get(a.symbol)
-            if last is None: 
+            if last is None:
                 continue
-            tripped = False
-            if a.condition_type == "price_above" and last >= a.value:
-                tripped = True
-            elif a.condition_type == "price_below" and last <= a.value:
-                tripped = True
-
-            if tripped:
-                trig = AlertTrigger(alert_id=a.id, symbol=a.symbol, price=last)
+            cond = a.condition or {}
+            ctype = cond.get("type")
+            value = cond.get("value")
+            if ctype == "price_above" and value is not None and last >= float(value):
+                trig = AlertTrigger(alert_id=a.id, symbol=a.symbol, payload={"price": last, "condition": a.condition})
                 db.add(trig)
-                # one-shot alert: delete it after trigger (simple)
-                db.execute(delete(Alert).where(Alert.id==a.id))
+                db.execute(delete(Alert).where(Alert.id == a.id))
+            elif ctype == "price_below" and value is not None and last <= float(value):
+                trig = AlertTrigger(alert_id=a.id, symbol=a.symbol, payload={"price": last, "condition": a.condition})
+                db.add(trig)
+                db.execute(delete(Alert).where(Alert.id == a.id))
         db.commit()
     finally:
         db.close()

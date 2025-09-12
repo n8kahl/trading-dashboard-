@@ -1,11 +1,9 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Dict, Any
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import String, Integer, Float, DateTime, JSON
-
-class Base(DeclarativeBase):
-    pass
+from .base import Base
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"

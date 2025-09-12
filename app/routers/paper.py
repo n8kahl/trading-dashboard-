@@ -6,7 +6,7 @@ import os
 import re
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
-from app.models.paper import Base
+from app.models import Base
 from app.services.paper_engine import SubmitIntent, submit, positions, pnl_for_date
 from app.services.decision_artifacts import build_artifact
 

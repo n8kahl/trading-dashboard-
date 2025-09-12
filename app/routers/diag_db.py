@@ -39,7 +39,12 @@ def db_insert_demo():
         with db_session() as db:
             if db is None:
                 return JSONResponse({"ok": False, "error": "DB not configured"}, status_code=503)
-            a = Alert(symbol="DEMO", timeframe="day", condition='{"type":"price_above","value":123}', active=True)
+            a = Alert(
+                symbol="DEMO",
+                timeframe="day",
+                condition={"type": "price_above", "value": 123},
+                is_active=True,
+            )
             db.add(a)
             db.flush()
             return {"ok": True, "id": a.id}

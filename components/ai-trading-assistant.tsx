@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,16 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-interface AssistantMessage {
-  id: string
-  type: "user" | "assistant" | "system"
-  content: string
-  timestamp: Date
-  actionType?: "buy" | "sell" | "hold" | "alert"
-  symbol?: string
-  confidence?: number
-}
+import { useAssistantConversation, AssistantMessage } from "@/hooks/useAssistantConversation"
 
 interface TradingSignal {
   symbol: string
@@ -30,36 +21,9 @@ interface TradingSignal {
 }
 
 export function AITradingAssistant() {
-  const [messages, setMessages] = useState<AssistantMessage[]>([
-    {
-      id: "1",
-      type: "system",
-      content: "Trading Assistant initialized. Monitoring market conditions...",
-      timestamp: new Date(),
-    },
-    {
-      id: "2",
-      type: "assistant",
-      content:
-        "Good morning! I'm analyzing current market conditions. SPY is showing bullish momentum with volume confirmation. Consider watching for pullback entries.",
-      timestamp: new Date(),
-      actionType: "alert",
-      symbol: "SPY",
-      confidence: 75,
-    },
-  ])
-
   const [input, setInput] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
   const [signals, setSignals] = useState<TradingSignal[]>([])
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [messages])
+  const { messages, isTyping, sendMessage, scrollRef, addMessage } = useAssistantConversation()
 
   // Simulate live trading signals
   useEffect(() => {
@@ -104,7 +68,7 @@ export function AITradingAssistant() {
           symbol,
           confidence,
         }
-        setMessages((prev) => [...prev, message])
+        addMessage(message)
       }
     }
 
@@ -112,40 +76,10 @@ export function AITradingAssistant() {
     return () => clearInterval(interval)
   }, [])
 
-  const sendMessage = async () => {
+  const handleSend = async () => {
     if (!input.trim()) return
-
-    const userMessage: AssistantMessage = {
-      id: Date.now().toString(),
-      type: "user",
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
+    await sendMessage(input)
     setInput("")
-    setIsTyping(true)
-
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        "Based on current market conditions, I recommend monitoring SPY for a potential breakout above $446. Volume is increasing.",
-        "AAPL is showing strong support at $185. Consider a long position with a stop at $183.",
-        "Market volatility is elevated. Consider reducing position sizes and using tighter stops.",
-        "TSLA options flow suggests bullish sentiment. Watch for momentum above $245.",
-        "The VIX is declining, indicating reduced fear. This could support continued upward movement in equities.",
-      ]
-
-      const assistantMessage: AssistantMessage = {
-        id: (Date.now() + 1).toString(),
-        type: "assistant",
-        content: responses[Math.floor(Math.random() * responses.length)],
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
-      setIsTyping(false)
-    }, 1500)
   }
 
   const getActionIcon = (actionType?: string) => {
@@ -282,10 +216,10 @@ export function AITradingAssistant() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about market conditions, strategies, or specific symbols..."
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                onKeyDown={(e) => e.key === "Enter" && handleSend()}
                 className="text-xs"
               />
-              <Button size="sm" onClick={sendMessage} disabled={!input.trim() || isTyping}>
+              <Button size="sm" onClick={handleSend} disabled={!input.trim() || isTyping}>
                 <Send className="h-3 w-3" />
               </Button>
             </div>

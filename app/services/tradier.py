@@ -54,11 +54,10 @@ async def quotes_for_symbols(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         out[q["symbol"]] = q
     return out
 
-def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
+async def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
     """
-    Fetch option quotes (with greeks) from Tradier in batches using the correct endpoint:
-      /v1/markets/options/quotes
-    Fail-open: returns {} on any error.
+    Fetch option quotes (with greeks) from Tradier in batches using the correct
+    endpoint: /v1/markets/options/quotes. Fail-open and returns {} on any error.
     """
     out: dict[str, dict] = {}
     if not symbols:
@@ -68,42 +67,41 @@ def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
     if not token:
         return out
 
-    import requests
     base = settings.tradier_base_url or "https://sandbox.tradier.com"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
-        "User-Agent": "trading-assistant/greeks-enrichment"
+        "User-Agent": "trading-assistant/greeks-enrichment",
     }
 
     CHUNK = 120  # Tradier handles large lists but we keep it safe
-    for i in range(0, len(symbols), CHUNK):
-        chunk = [c for c in symbols[i:i+CHUNK] if c]
-        if not chunk:
-            continue
-        try:
-            r = requests.get(
-                f"{base}/v1/markets/options/quotes",
-                headers=headers,
-                params={"symbols": ",".join(chunk), "greeks": "true"},
-                timeout=15
-            )
-            r.raise_for_status()
-            data = r.json() or {}
-            # Shape can be: {"quotes":{"quote":[{...},{...}]}} OR {"quotes":{"quote":{...}}}
-            quotes = (data.get("quotes") or {}).get("quote")
-            if not quotes:
+    async with httpx.AsyncClient(timeout=15) as client:
+        for i in range(0, len(symbols), CHUNK):
+            chunk = [c for c in symbols[i:i + CHUNK] if c]
+            if not chunk:
                 continue
-            if isinstance(quotes, dict):
-                quotes = [quotes]
-            for q in quotes:
-                sym = q.get("symbol")
-                if not sym:
+            try:
+                r = await client.get(
+                    f"{base}/v1/markets/options/quotes",
+                    headers=headers,
+                    params={"symbols": ",".join(chunk), "greeks": "true"},
+                )
+                r.raise_for_status()
+                data = r.json() or {}
+                # Shape can be: {"quotes":{"quote":[{...},{...}]}} OR {"quotes":{"quote":{...}}}
+                quotes = (data.get("quotes") or {}).get("quote")
+                if not quotes:
                     continue
-                out[sym] = q  # includes "greeks": { delta, gamma, theta, vega, ... }
-        except Exception:
-            # fail-open: skip chunk on any error
-            pass
+                if isinstance(quotes, dict):
+                    quotes = [quotes]
+                for q in quotes:
+                    sym = q.get("symbol")
+                    if not sym:
+                        continue
+                    out[sym] = q  # includes "greeks": { delta, gamma, theta, vega, ... }
+            except Exception:
+                # fail-open: skip chunk on any error
+                pass
 
     return out
 

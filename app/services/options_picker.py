@@ -1,12 +1,11 @@
-import math
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Tuple
-from datetime import datetime, timezone, date
 
 import httpx
 
 from app.core.settings import settings
-from app.utils.timebox import parse_expiration, days_to
+from app.utils.timebox import days_to, parse_expiration
 
 
 def _headers() -> Dict[str, str]:
@@ -17,15 +16,16 @@ def _headers() -> Dict[str, str]:
         "User-Agent": "trading-assistant/1.0",
     }
 
+
 @dataclass
 class PickerConfig:
     # hard gates (defaults; you can tune later)
-    max_spread_pct: float = 0.08     # 8%
+    max_spread_pct: float = 0.08  # 8%
     min_oi: int = 500
     min_vol: int = 200
-    dte_min: int = 0                 # allow 0DTE
+    dte_min: int = 0  # allow 0DTE
     dte_max: int = 10
-    side: str = "call"               # "call" | "put"
+    side: str = "call"  # "call" | "put"
     limit: int = 3
 
     # scoring weights
@@ -33,6 +33,7 @@ class PickerConfig:
     w_inv_spread: float = 0.30
     w_oi_rank: float = 0.20
     w_v_over_oi: float = 0.15
+
 
 def _safe_div(a: float, b: float, default: float = 0.0) -> float:
     try:
@@ -42,11 +43,13 @@ def _safe_div(a: float, b: float, default: float = 0.0) -> float:
     except Exception:
         return default
 
+
 def _spread_pct(bid: float | None, ask: float | None) -> float:
     if not bid or not ask or bid <= 0 or ask <= 0 or ask < bid:
         return 1.0  # effectively horrible spread
     mid = (bid + ask) / 2.0
     return (ask - bid) / mid if mid > 0 else 1.0
+
 
 def _delta_band_score(opt: Dict[str, Any], side: str) -> float:
     """
@@ -78,11 +81,13 @@ def _delta_band_score(opt: Dict[str, Any], side: str) -> float:
         # d > target_high
         return max(0.0, (1.0 - (d - target_high) / (0.6 - target_high)) * 0.7) if d < 0.6 else 0.1
 
+
 async def _tradier_json(client: httpx.AsyncClient, url: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
     r = await client.get(url, headers=_headers(), params=params or {}, timeout=20.0)
     if r.status_code >= 300:
         raise RuntimeError(f"Tradier GET {url} {r.status_code}: {r.text}")
     return r.json()
+
 
 async def _expirations(client: httpx.AsyncClient, symbol: str) -> List[date]:
     url = f"{settings.tradier_base_url}/v1/markets/options/expirations"
@@ -93,6 +98,7 @@ async def _expirations(client: httpx.AsyncClient, symbol: str) -> List[date]:
         exps = [exps]
     return [parse_expiration(s) for s in exps]
 
+
 async def _chains_for_expiry(client: httpx.AsyncClient, symbol: str, expiry: date) -> List[Dict[str, Any]]:
     url = f"{settings.tradier_base_url}/v1/markets/options/chains"
     js = await _tradier_json(client, url, {"symbol": symbol, "expiration": expiry.isoformat(), "greeks": "true"})
@@ -102,10 +108,12 @@ async def _chains_for_expiry(client: httpx.AsyncClient, symbol: str, expiry: dat
         opts = [opts]
     return opts
 
+
 def _pick_side(options: List[Dict[str, Any]], side: str) -> List[Dict[str, Any]]:
     # Tradier key often = "option_type": "call"/"put"
     side_key = side.lower()
     return [o for o in options if (o.get("option_type") or o.get("type", "")).lower() == side_key]
+
 
 def _rank_contracts(options: List[Dict[str, Any]], cfg: PickerConfig, dte_map: Dict[str, int]) -> List[Dict[str, Any]]:
     # Build ranks (OI rank) and compute score
@@ -140,32 +148,40 @@ def _rank_contracts(options: List[Dict[str, Any]], cfg: PickerConfig, dte_map: D
         s_v_over_oi = _safe_div(vol, max(oi, 1))
 
         score = (
-            cfg.w_delta_band * s_delta +
-            cfg.w_inv_spread * s_inv_spread +
-            cfg.w_oi_rank * s_oi_rank +
-            cfg.w_v_over_oi * s_v_over_oi
+            cfg.w_delta_band * s_delta
+            + cfg.w_inv_spread * s_inv_spread
+            + cfg.w_oi_rank * s_oi_rank
+            + cfg.w_v_over_oi * s_v_over_oi
         )
 
-        ranked.append((score, {
-            "symbol": sym,
-            "bid": bid,
-            "ask": ask,
-            "mid": (bid + ask) / 2.0 if bid > 0 and ask > 0 else None,
-            "spread_pct": sp,
-            "volume": vol,
-            "open_interest": oi,
-            "dte": dte,
-            "greeks": o.get("greeks"),
-            "desc": o.get("description"),
-            "last": o.get("last"),
-            "strike": o.get("strike"),
-            "expiration_date": o.get("expiration_date") or o.get("expiration")
-        }))
+        ranked.append(
+            (
+                score,
+                {
+                    "symbol": sym,
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": (bid + ask) / 2.0 if bid > 0 and ask > 0 else None,
+                    "spread_pct": sp,
+                    "volume": vol,
+                    "open_interest": oi,
+                    "dte": dte,
+                    "greeks": o.get("greeks"),
+                    "desc": o.get("description"),
+                    "last": o.get("last"),
+                    "strike": o.get("strike"),
+                    "expiration_date": o.get("expiration_date") or o.get("expiration"),
+                },
+            )
+        )
 
     ranked.sort(key=lambda t: t[0], reverse=True)
     return [{"score": round(s, 6), **item} for s, item in ranked]
-    
-async def pick_options(symbol: str, side: str, dte_min: int, dte_max: int, limit: int, overrides: Dict[str, float] | None = None) -> Dict[str, Any]:
+
+
+async def pick_options(
+    symbol: str, side: str, dte_min: int, dte_max: int, limit: int, overrides: Dict[str, float] | None = None
+) -> Dict[str, Any]:
     if not settings.TRADIER_ACCESS_TOKEN:
         return {"ok": False, "error": "TRADIER_ACCESS_TOKEN not set"}
 
@@ -184,7 +200,11 @@ async def pick_options(symbol: str, side: str, dte_min: int, dte_max: int, limit
             return {"ok": False, "error": "No expirations returned"}
 
         # filter by DTE window quickly to cut API pressure
-        window_exps = [e for e in exps if cfg.dte_min <= days_to(e, today) <= cfg.dte_max or (cfg.dte_min == 0 and days_to(e, today) == 0)]
+        window_exps = [
+            e
+            for e in exps
+            if cfg.dte_min <= days_to(e, today) <= cfg.dte_max or (cfg.dte_min == 0 and days_to(e, today) == 0)
+        ]
         if not window_exps:
             return {"ok": True, "candidates": [], "note": "No expirations in requested DTE window"}
 
@@ -216,11 +236,11 @@ async def pick_options(symbol: str, side: str, dte_min: int, dte_max: int, limit
                 "min_vol": cfg.min_vol,
                 "dte_min": cfg.dte_min,
                 "dte_max": cfg.dte_max,
-                "side": cfg.side
+                "side": cfg.side,
             },
             "symbol": symbol.upper(),
             "today": today.isoformat(),
             "count_scored": len(ranked),
             "returned": len(topn),
-            "contracts": topn
+            "contracts": topn,
         }

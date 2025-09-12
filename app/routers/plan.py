@@ -1,15 +1,18 @@
-from typing import Optional, Literal, List
+from typing import List, Literal, Optional
+
 from fastapi import APIRouter, Body
 from pydantic import BaseModel, Field, ValidationError
 
 router = APIRouter(prefix="/plan", tags=["plan"])
 
+
 # ---- Models ----
 class Plan(BaseModel):
     entry: float = Field(..., description="Proposed entry price")
-    stop: float  = Field(..., description="Proposed stop price")
+    stop: float = Field(..., description="Proposed stop price")
     tp1: Optional[float] = Field(None, description="Take-profit 1")
     tp2: Optional[float] = Field(None, description="Take-profit 2")
+
 
 class ValidateRequest(BaseModel):
     symbol: str
@@ -22,6 +25,7 @@ class ValidateRequest(BaseModel):
     tp1: Optional[float] = None
     tp2: Optional[float] = None
 
+
 class ValidateResponse(BaseModel):
     ok: bool
     symbol: str
@@ -31,6 +35,7 @@ class ValidateResponse(BaseModel):
     targets: List[float]
     notes: List[str]
 
+
 def _coerce_plan(req: ValidateRequest) -> Plan:
     """Allow both nested plan and flattened fields."""
     if req.plan:
@@ -38,6 +43,7 @@ def _coerce_plan(req: ValidateRequest) -> Plan:
     if req.entry is None or req.stop is None:
         raise ValueError("entry and stop are required (either in plan{} or flattened).")
     return Plan(entry=req.entry, stop=req.stop, tp1=req.tp1, tp2=req.tp2)
+
 
 def _validate_sanity(side: str, entry: float, stop: float) -> List[str]:
     side_l = side.lower()
@@ -51,6 +57,7 @@ def _validate_sanity(side: str, entry: float, stop: float) -> List[str]:
     else:
         notes.append("Unknown side; expected long/short or CALL/PUT.")
     return notes
+
 
 @router.post("/validate")
 async def validate_plan(payload: dict = Body(...)):
@@ -85,18 +92,16 @@ async def validate_plan(payload: dict = Body(...)):
                 risk_R=req.risk_R,
                 per_unit_risk=per_unit,
                 targets=[tp1, tp2],
-                notes=notes or ["Looks sane."]
-            ).model_dump()
+                notes=notes or ["Looks sane."],
+            ).model_dump(),
         }
     except ValidationError as ve:
-        return {
-            "status": "error",
-            "error": "validation_error",
-            "data": ve.errors()
-        }
+        return {"status": "error", "error": "validation_error", "data": ve.errors()}
     except Exception as e:
         return {
             "status": "error",
             "error": str(e),
-            "data": {"hint": "Ensure body contains symbol, side, and (entry & stop) either nested in plan{} or flattened."}
+            "data": {
+                "hint": "Ensure body contains symbol, side, and (entry & stop) either nested in plan{} or flattened."
+            },
         }

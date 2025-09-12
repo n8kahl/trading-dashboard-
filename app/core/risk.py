@@ -4,13 +4,15 @@ import logging
 import os
 from typing import Any, Dict
 
-from .ws import manager
 from app.services import tradier
+
+from .ws import manager
 
 logger = logging.getLogger(__name__)
 
 RISK_MAX_DAILY_R = float(os.getenv("RISK_MAX_DAILY_R", "0"))
 RISK_MAX_CONCURRENT = int(os.getenv("RISK_MAX_CONCURRENT", "0"))
+
 
 class RiskEngine:
     def __init__(self) -> None:
@@ -26,9 +28,7 @@ class RiskEngine:
         items = pos.get("items", []) if isinstance(pos, dict) else []
         concurrent = len(items)
         self.state["concurrent"] = concurrent
-        self.state["breach_concurrent"] = bool(
-            RISK_MAX_CONCURRENT and concurrent > RISK_MAX_CONCURRENT
-        )
+        self.state["breach_concurrent"] = bool(RISK_MAX_CONCURRENT and concurrent > RISK_MAX_CONCURRENT)
 
         daily_r = 0.0
         try:
@@ -55,9 +55,7 @@ class RiskEngine:
             logger.exception("error fetching trade history")
 
         self.state["daily_r"] = daily_r
-        self.state["breach_daily_r"] = bool(
-            RISK_MAX_DAILY_R and daily_r > RISK_MAX_DAILY_R
-        )
+        self.state["breach_daily_r"] = bool(RISK_MAX_DAILY_R and daily_r > RISK_MAX_DAILY_R)
 
     async def loop(self) -> None:
         while True:
@@ -68,7 +66,9 @@ class RiskEngine:
                 logger.exception("risk engine loop error")
             await asyncio.sleep(15)
 
+
 risk_engine = RiskEngine()
+
 
 async def start_risk_engine() -> None:
     asyncio.create_task(risk_engine.loop())

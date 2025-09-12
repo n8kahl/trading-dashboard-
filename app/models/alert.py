@@ -1,6 +1,9 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+
 from .base import Base
+
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -8,7 +11,7 @@ class Alert(Base):
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(32), index=True, nullable=False)
     timeframe = Column(String(16), nullable=False)  # 'minute','day', etc.
-    condition = Column(Text, nullable=False)        # JSON string (type/value/etc)
+    condition = Column(Text, nullable=False)  # JSON string (type/value/etc)
     expires_at = Column(DateTime, nullable=True)
 
     # IMPORTANT: the DB column is named is_active (not active)

@@ -1,16 +1,18 @@
-import os
 import importlib
+import os
+
 import pytest
-from starlette.websockets import WebSocketDisconnect
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 @pytest.fixture
 def client(monkeypatch):
     os.environ["API_KEY"] = "secret"
-    import app.security as security
     import app.core.ws as ws
     import app.main as main
+    import app.security as security
+
     importlib.reload(security)
     importlib.reload(ws)
     importlib.reload(main)

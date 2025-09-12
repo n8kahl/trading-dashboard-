@@ -4,6 +4,7 @@ from starlette.requests import Request
 VALID = {"coach", "trade"}
 DEFAULT = "coach"
 
+
 class ProfileMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         profile = request.headers.get("X-Assistant-Profile", DEFAULT).lower()

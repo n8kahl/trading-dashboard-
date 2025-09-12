@@ -1,9 +1,13 @@
 from __future__ import annotations
-from typing import List, Dict, Any
-from datetime import datetime, timedelta, timezone
-import asyncio, httpx
+
+import asyncio
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+import httpx
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
 
 def _ts_to_date(ts: int | None):
     if not ts:
@@ -12,6 +16,7 @@ def _ts_to_date(ts: int | None):
         return datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
     except Exception:
         return None
+
 
 async def _fetch_next_earnings(symbol: str) -> Dict[str, Any] | None:
     url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
@@ -26,12 +31,12 @@ async def _fetch_next_earnings(symbol: str) -> Dict[str, Any] | None:
             result = (j.get("quoteSummary", {}) or {}).get("result", [])
             if not result:
                 return None
-            cal = (result[0].get("calendarEvents") or {})
+            cal = result[0].get("calendarEvents") or {}
             ed = cal.get("earnings", {}).get("earningsDate") or cal.get("earningsDate")
             if isinstance(ed, dict):
                 ed = [ed]
             dates = []
-            for e in (ed or []):
+            for e in ed or []:
                 d = _ts_to_date((e or {}).get("raw"))
                 if d:
                     dates.append(d)
@@ -42,6 +47,7 @@ async def _fetch_next_earnings(symbol: str) -> Dict[str, Any] | None:
     except Exception:
         return None
 
+
 async def fetch_earnings_ahead_yahoo(watchlist: List[str], window_days: int = 45) -> Dict[str, Any]:
     """
     Returns upcoming earnings within `window_days` (default 45) for given symbols.
@@ -49,7 +55,7 @@ async def fetch_earnings_ahead_yahoo(watchlist: List[str], window_days: int = 45
     if not watchlist:
         return {"note": "No event data available", "earnings": []}
 
-    tasks = [ _fetch_next_earnings(sym) for sym in watchlist ]
+    tasks = [_fetch_next_earnings(sym) for sym in watchlist]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     today = datetime.now(timezone.utc).date()
@@ -67,10 +73,13 @@ async def fetch_earnings_ahead_yahoo(watchlist: List[str], window_days: int = 45
     if not out:
         return {"note": "No event data available", "earnings": []}
 
-    seen=set(); clean=[]
+    seen = set()
+    clean = []
     for x in out:
-        k=(x["symbol"], x["date"])
-        if k in seen: continue
-        seen.add(k); clean.append(x)
-    clean.sort(key=lambda z:(z["date"], z["symbol"]))
+        k = (x["symbol"], x["date"])
+        if k in seen:
+            continue
+        seen.add(k)
+        clean.append(x)
+    clean.sort(key=lambda z: (z["date"], z["symbol"]))
     return {"note": None, "earnings": clean}

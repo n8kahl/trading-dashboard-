@@ -1,7 +1,9 @@
-import httpx
 from typing import Any, Dict
 
+import httpx
+
 from app.core.settings import settings
+
 
 class TradierError(RuntimeError): ...
 

@@ -1,12 +1,12 @@
+import sys
 from datetime import date
 from pathlib import Path
-import sys
 
 import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from app.utils.timebox import parse_expiration, days_to
+from app.utils.timebox import days_to, parse_expiration
 
 
 def test_parse_expiration_valid():

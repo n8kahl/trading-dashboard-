@@ -1,12 +1,17 @@
 from __future__ import annotations
-from typing import List, Dict, Any
+
+import os
 from datetime import datetime, timedelta, timezone
-import os, httpx
+from typing import Any, Dict, List
 
-FINNHUB_KEY = os.getenv("FINNHUB_API_KEY","").strip()
+import httpx
 
-def _iso(d): 
+FINNHUB_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
+
+
+def _iso(d):
     return d.strftime("%Y-%m-%d")
+
 
 async def fetch_earnings_ahead_finnhub(watchlist: List[str], window_days: int = 30) -> Dict[str, Any]:
     """
@@ -18,9 +23,9 @@ async def fetch_earnings_ahead_finnhub(watchlist: List[str], window_days: int = 
 
     today_dt = datetime.now(timezone.utc).date()
     start = today_dt
-    end   = today_dt + timedelta(days=window_days)
+    end = today_dt + timedelta(days=window_days)
 
-    url   = "https://finnhub.io/api/v1/calendar/earnings"
+    url = "https://finnhub.io/api/v1/calendar/earnings"
     params = {"from": _iso(start), "to": _iso(end), "token": FINNHUB_KEY}
 
     try:
@@ -53,11 +58,13 @@ async def fetch_earnings_ahead_finnhub(watchlist: List[str], window_days: int = 
         return {"note": "No event data available", "earnings": []}
 
     # de-dup & sort
-    seen=set(); clean=[]
+    seen = set()
+    clean = []
     for x in out:
-        k=(x["symbol"], x["date"])
-        if k in seen: 
+        k = (x["symbol"], x["date"])
+        if k in seen:
             continue
-        seen.add(k); clean.append(x)
-    clean.sort(key=lambda z:(z["date"], z["symbol"]))
+        seen.add(k)
+        clean.append(x)
+    clean.sort(key=lambda z: (z["date"], z["symbol"]))
     return {"note": None, "earnings": clean}

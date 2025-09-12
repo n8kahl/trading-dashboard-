@@ -1,19 +1,19 @@
+import os
+
+import httpx
 from fastapi import APIRouter, HTTPException
-import os, httpx
 
 # IMPORTANT: mount under /api/v1/diag
 router = APIRouter(prefix="/diag", tags=["diag"])
 
+
 @router.get("/config")
 def config():
     # Show which relevant env vars are set (mask values)
-    keys = [
-        "TRADIER_BASE", "TRADIER_ENV",
-        "TRADIER_ACCESS_TOKEN",
-        "POLYGON_API_KEY"
-    ]
+    keys = ["TRADIER_BASE", "TRADIER_ENV", "TRADIER_ACCESS_TOKEN", "POLYGON_API_KEY"]
     env = {k: ("set" if os.getenv(k) else "") for k in keys}
     return {"ok": True, "env": env}
+
 
 @router.get("/tradier")
 async def tradier(symbol: str = "SPY"):

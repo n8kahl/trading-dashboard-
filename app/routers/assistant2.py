@@ -1,15 +1,19 @@
+import os
 from typing import Any, Dict, Optional
+
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import os, httpx
 
 router = APIRouter(prefix="/assistant2", tags=["assistant2"])
+
 
 class OptionsPickArgs(BaseModel):
     symbol: str = Field(..., description="Ticker, e.g. SPY")
     side: str = Field(..., description="long_call|long_put|short_call|short_put")
     horizon: Optional[str] = Field("intra", description="intra|day|week")
     n: Optional[int] = Field(5, ge=1, le=10)
+
 
 class ExecBody(BaseModel):
     op: str
@@ -19,18 +23,23 @@ class ExecBody(BaseModel):
     horizon: Optional[str] = None
     n: Optional[int] = None
 
-_ACTIONS = [{
-    "op": "options.pick",
-    "title": "Pick closest-to-ATM options (delayed)",
-    "description": "Return N contracts nearest to ATM for a ticker/side/horizon.",
-    "args_schema": OptionsPickArgs.model_json_schema(),
-    "stable": True,
-    "id": "options.pick",
-}]
+
+_ACTIONS = [
+    {
+        "op": "options.pick",
+        "title": "Pick closest-to-ATM options (delayed)",
+        "description": "Return N contracts nearest to ATM for a ticker/side/horizon.",
+        "args_schema": OptionsPickArgs.model_json_schema(),
+        "stable": True,
+        "id": "options.pick",
+    }
+]
+
 
 @router.get("/actions", summary="List assistant operations")
 async def assistant_actions() -> Dict[str, Any]:
     return {"ok": True, "version": "__ASSISTANT2__", "actions": _ACTIONS}
+
 
 @router.post("/exec", summary="Execute an assistant operation")
 async def assistant_exec(body: ExecBody) -> Dict[str, Any]:

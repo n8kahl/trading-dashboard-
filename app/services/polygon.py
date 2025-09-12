@@ -1,20 +1,20 @@
 import os
-import httpx
 from typing import Any, Dict
+
+import httpx
 
 _BASE = "https://api.polygon.io"
 _API_KEY = os.getenv("POLYGON_API_KEY", "").strip()
 
 
-class PolygonError(RuntimeError):
-    ...
+class PolygonError(RuntimeError): ...
 
 
 def _client() -> httpx.Client:
     """Return a configured HTTP client for Polygon."""
     if not _API_KEY:
         raise PolygonError("POLYGON_API_KEY not set")
-    headers = {"Authorization": f"Bearer " + _API_KEY}
+    headers = {"Authorization": "Bearer " + _API_KEY}
     return httpx.Client(base_url=_BASE, headers=headers, timeout=10.0)
 
 

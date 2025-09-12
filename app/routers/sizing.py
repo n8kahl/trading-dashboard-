@@ -1,36 +1,40 @@
 from __future__ import annotations
+
+from math import floor
+from typing import Any, Dict, Literal, Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, Dict, Any
-from math import floor
 
 from app.services import tradier_client as tc
 
 router = APIRouter(prefix="/sizing", tags=["sizing"])
 
+
 class SizingRequest(BaseModel):
     symbol: str
-    side: Literal["long","short"]
+    side: Literal["long", "short"]
     entry: float = Field(..., gt=0)
     stop: float = Field(..., gt=0)
 
     # Risk budgeting
-    risk_R_dollars: Optional[float] = None           # flat $ risk per trade (overrides pct if provided)
-    risk_pct_of_equity: Optional[float] = 0.005      # default 0.5% if equity known
-    min_risk_dollars_if_unknown: float = 100.0       # fallback if balances unavailable
+    risk_R_dollars: Optional[float] = None  # flat $ risk per trade (overrides pct if provided)
+    risk_pct_of_equity: Optional[float] = 0.005  # default 0.5% if equity known
+    min_risk_dollars_if_unknown: float = 100.0  # fallback if balances unavailable
 
     # Notional guard (cap % of buying power)
     notional_cap_pct_of_bp: Optional[float] = 0.33
     min_qty: int = 1
 
     # Asset class
-    asset_class: Literal["equity","option"] = "equity"
+    asset_class: Literal["equity", "option"] = "equity"
     option_contract_price: Optional[float] = None
     option_multiplier: int = 100
 
     # Optional overrides (useful in sandbox or if Tradier balances lag)
     equity_override: Optional[float] = None
     buying_power_override: Optional[float] = None
+
 
 class SizingResponse(BaseModel):
     ok: bool
@@ -42,6 +46,7 @@ class SizingResponse(BaseModel):
     quantity: int
     notional_estimate: float
     checks: Dict[str, Any]
+
 
 @router.post("/suggest", response_model=SizingResponse)
 async def suggest(body: SizingRequest) -> SizingResponse:
@@ -59,13 +64,11 @@ async def suggest(body: SizingRequest) -> SizingResponse:
         note_parts.append(f"balances unavailable: {e}")
 
     # Extract with overrides
-    equity = (
-        (body.equity_override if body.equity_override is not None else None) or
-        (balances.get("total_equity") or balances.get("account_value") or 0.0)
+    equity = (body.equity_override if body.equity_override is not None else None) or (
+        balances.get("total_equity") or balances.get("account_value") or 0.0
     )
-    buying_power = (
-        (body.buying_power_override if body.buying_power_override is not None else None) or
-        (balances.get("buying_power") or balances.get("day_trading_buying_power") or 0.0)
+    buying_power = (body.buying_power_override if body.buying_power_override is not None else None) or (
+        balances.get("buying_power") or balances.get("day_trading_buying_power") or 0.0
     )
     try:
         equity = float(equity)
@@ -135,5 +138,5 @@ async def suggest(body: SizingRequest) -> SizingResponse:
             "equity": equity,
             "buying_power": buying_power,
             "qty_risk_limited": qty_risk,
-        }
+        },
     )

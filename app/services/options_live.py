@@ -1,23 +1,29 @@
 from __future__ import annotations
+
 from datetime import date, timedelta
-from typing import Dict, Any, List, Literal, Tuple
-from app.services.polygon import get_json, PolygonError
+from typing import Any, Dict, List, Literal, Tuple
+
+from app.services.polygon import PolygonError, get_json
+
 from .options_common import (
+    Horizon,
+    Side,
     _today_utc,
     expiration_window,
-    nearest_strike_indices,
     format_quote,
-    Side,
-    Horizon,
+    nearest_strike_indices,
 )
+
 
 def _is_weekend(d: date) -> bool:
     return d.weekday() >= 5
+
 
 def _next_weekday(d: date) -> date:
     while _is_weekend(d):
         d += timedelta(days=1)
     return d
+
 
 async def fetch_spot(ticker: str) -> float:
     """Fetch the latest trade price for a ticker."""
@@ -33,18 +39,23 @@ async def fetch_spot(ticker: str) -> float:
         raise PolygonError("No spot/prev data available for " + ticker)
     return float(results[0]["c"])
 
-async def _contracts_exist(ticker: str, exp: date, cp: Literal["call","put"]) -> bool:
-    res = await get_json("/v3/reference/options/contracts", {
-        "underlying_ticker": ticker.upper(),
-        "expiration_date": exp.isoformat(),
-        "contract_type": cp,
-        "limit": 1,
-        "order": "asc",
-        "sort": "strike_price",
-    })
+
+async def _contracts_exist(ticker: str, exp: date, cp: Literal["call", "put"]) -> bool:
+    res = await get_json(
+        "/v3/reference/options/contracts",
+        {
+            "underlying_ticker": ticker.upper(),
+            "expiration_date": exp.isoformat(),
+            "contract_type": cp,
+            "limit": 1,
+            "order": "asc",
+            "sort": "strike_price",
+        },
+    )
     return (res.get("resultsCount") or 0) > 0
 
-async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) -> date:
+
+async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call", "put"]) -> date:
     # Target window by horizon
     start = _next_weekday(_today_utc())
     min_dte, max_dte = expiration_window(horizon)
@@ -64,22 +75,27 @@ async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","p
         return first_available
     raise PolygonError("No expirations found for " + ticker)
 
-async def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call","put"], limit: int = 1000) -> List[Dict[str, Any]]:
-    res = await get_json("/v3/reference/options/contracts", {
-        "underlying_ticker": ticker.upper(),
-        "expiration_date": exp.isoformat(),
-        "contract_type": cp,
-        "limit": limit,
-        "order": "asc",
-        "sort": "strike_price",
-    })
+
+async def fetch_contracts_for_exp(
+    ticker: str, exp: date, cp: Literal["call", "put"], limit: int = 1000
+) -> List[Dict[str, Any]]:
+    res = await get_json(
+        "/v3/reference/options/contracts",
+        {
+            "underlying_ticker": ticker.upper(),
+            "expiration_date": exp.isoformat(),
+            "contract_type": cp,
+            "limit": limit,
+            "order": "asc",
+            "sort": "strike_price",
+        },
+    )
     return res.get("results") or []
+
 
 async def _recent_quote(opt_symbol: str) -> Tuple[float | None, float | None, float | None]:
     # returns (bid, ask, last) using most recent quote
-    q = await get_json(
-        f"/v3/quotes/options/{opt_symbol}", {"limit": 1, "sort": "timestamp", "order": "desc"}
-    )
+    q = await get_json(f"/v3/quotes/options/{opt_symbol}", {"limit": 1, "sort": "timestamp", "order": "desc"})
     results = q.get("results") or []
     if not results:
         return None, None, None
@@ -93,6 +109,7 @@ async def _recent_quote(opt_symbol: str) -> Tuple[float | None, float | None, fl
         float(ask) if ask is not None else None,
         float(last) if last is not None else None,
     )
+
 
 async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
     cp = "call" if "call" in side else "put"
@@ -113,17 +130,19 @@ async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int 
         sym = c.get("ticker") or c.get("contract") or c.get("symbol")
         bid, ask, last = await _recent_quote(sym)
         bid_f, ask_f, mark_f, spread_pct = format_quote(bid, ask, last)
-        picks.append({
-            "symbol": sym,
-            "expiration": exp.isoformat(),
-            "strike": float(c.get("strike_price")),
-            "option_type": cp,
-            "bid": bid_f,
-            "ask": ask_f,
-            "mark": mark_f,
-            "spread_pct": spread_pct,
-            # You can add more real fields later (open_interest, volume, delta) from additional endpoints/tiers
-        })
+        picks.append(
+            {
+                "symbol": sym,
+                "expiration": exp.isoformat(),
+                "strike": float(c.get("strike_price")),
+                "option_type": cp,
+                "bid": bid_f,
+                "ask": ask_f,
+                "mark": mark_f,
+                "spread_pct": spread_pct,
+                # You can add more real fields later (open_interest, volume, delta) from additional endpoints/tiers
+            }
+        )
 
     picks = sorted(picks, key=lambda p: abs(p["strike"] - spot))
     return {
@@ -132,5 +151,5 @@ async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int 
         "note": "live contracts",
         "count_considered": len(picks),
         "picks": picks,
-        "meta": {"spot": spot, "expiration": exp.isoformat(), "horizon": horizon, "side": side}
+        "meta": {"spot": spot, "expiration": exp.isoformat(), "horizon": horizon, "side": side},
     }

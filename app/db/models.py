@@ -1,17 +1,21 @@
 from __future__ import annotations
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, Float, DateTime, JSON, Text, ForeignKey
+
 from datetime import datetime, timezone
+
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 
 class Base(DeclarativeBase):
     pass
+
 
 class Trade(Base):
     __tablename__ = "trades"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     symbol: Mapped[str] = mapped_column(String(32), index=True)
-    side: Mapped[str] = mapped_column(String(8))           # CALL/PUT/LONG/SHORT
+    side: Mapped[str] = mapped_column(String(8))  # CALL/PUT/LONG/SHORT
     strike: Mapped[float] = mapped_column(Float, nullable=True)
     expiry: Mapped[str] = mapped_column(String(16), nullable=True)  # YYYY-MM-DD
     avg_entry: Mapped[float] = mapped_column(Float, nullable=True)
@@ -20,6 +24,7 @@ class Trade(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=True)
     plan_json: Mapped[dict] = mapped_column(JSON, default=dict)
     confluence_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
 
 class ConfluenceScore(Base):
     __tablename__ = "confluence_scores"
@@ -32,6 +37,7 @@ class ConfluenceScore(Base):
     score_band: Mapped[str] = mapped_column(String(16))
     version: Mapped[str] = mapped_column(String(16))
     context: Mapped[dict] = mapped_column(JSON)
+
 
 class ConfluenceComponent(Base):
     __tablename__ = "confluence_score_components"

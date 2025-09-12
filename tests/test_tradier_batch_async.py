@@ -1,9 +1,10 @@
 import asyncio
 import time
+
 import httpx
 
-from app.services import tradier
 from app.core.settings import settings
+from app.services import tradier
 
 
 class DummyResponse:

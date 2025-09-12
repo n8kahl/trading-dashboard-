@@ -1,9 +1,13 @@
 from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Integer, Float, DateTime, JSON, Boolean, Text
+
 from .base import Base
+
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -15,6 +19,7 @@ class Alert(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
 class AlertTrigger(Base):
     __tablename__ = "alert_triggers"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -23,12 +28,14 @@ class AlertTrigger(Base):
     triggered_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.utcnow)
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, default={})
 
+
 class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(16), index=True)
     added_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.utcnow)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
 
 class JournalEntry(Base):
     __tablename__ = "journal_entries"

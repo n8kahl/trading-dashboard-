@@ -1,7 +1,9 @@
-from typing import Dict, Any, List
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List
+
 try:
     from zoneinfo import ZoneInfo
+
     try:
         NY = ZoneInfo("America/New_York")
     except Exception:
@@ -12,30 +14,40 @@ except Exception:
 
 from app.services.mcp_bridge import mcp_run_tool
 
+
 def _last(seq: List[dict]) -> dict | None:
     return seq[-1] if seq else None
 
+
 def _vwap(results: List[dict]) -> float | None:
-    pv = 0.0; vol = 0.0
+    pv = 0.0
+    vol = 0.0
     for b in results:
-        c = float(b.get("c", 0.0)); v = float(b.get("v", 0.0))
-        pv += c * v; vol += v
-    return (pv/vol) if vol > 0 else None
+        c = float(b.get("c", 0.0))
+        v = float(b.get("v", 0.0))
+        pv += c * v
+        vol += v
+    return (pv / vol) if vol > 0 else None
+
 
 def _ema(values: List[float], window: int) -> float | None:
-    if len(values) < window: return None
+    if len(values) < window:
+        return None
     k = 2.0 / (window + 1.0)
     ema = sum(values[:window]) / window
     for x in values[window:]:
         ema = x * k + ema * (1 - k)
     return ema
 
+
 def _rsi(values: List[float], window: int = 14) -> List[float]:
-    if len(values) <= window: return []
+    if len(values) <= window:
+        return []
     gains, losses = [], []
     for i in range(1, len(values)):
-        ch = values[i] - values[i-1]
-        gains.append(max(ch, 0.0)); losses.append(max(-ch, 0.0))
+        ch = values[i] - values[i - 1]
+        gains.append(max(ch, 0.0))
+        losses.append(max(-ch, 0.0))
     avg_gain = sum(gains[:window]) / window
     avg_loss = sum(losses[:window]) / window
     rsis = []
@@ -46,16 +58,20 @@ def _rsi(values: List[float], window: int = 14) -> List[float]:
         rsis.append(rsi)
     return rsis
 
+
 def _bars_above_vwap(results: List[dict], vwap: float, cap: int = 3) -> int:
-    if vwap is None: return 0
+    if vwap is None:
+        return 0
     n = 0
     for b in reversed(results):
         if float(b.get("c", 0.0)) > vwap:
             n += 1
-            if n >= cap: break
+            if n >= cap:
+                break
         else:
             break
     return n
+
 
 def _divergence_tag(results: List[dict], rsi_series: List[float]) -> str:
     if len(results) < 3 or len(rsi_series) < 3:
@@ -66,17 +82,21 @@ def _divergence_tag(results: List[dict], rsi_series: List[float]) -> str:
     rsi_rising = r3 > r2 > r1
     return "bullish_confirmed" if price_hh and rsi_rising else "weak"
 
+
 def _ymd(d: datetime) -> str:
     return d.strftime("%Y-%m-%d")
 
+
 def _ts_to_eastern_str(ts_ms: int) -> str:
-    dt = datetime.fromtimestamp(ts_ms/1000.0, tz=timezone.utc).astimezone(NY)
+    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(NY)
     return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
+
 def _is_rth_bar(ts_ms: int) -> bool:
-    dt_et = datetime.fromtimestamp(ts_ms/1000.0, tz=timezone.utc).astimezone(NY)
+    dt_et = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(NY)
     # 09:30–16:00 in whatever NY resolves to (NY or UTC fallback)
     return (dt_et.hour > 9 or (dt_et.hour == 9 and dt_et.minute >= 30)) and (dt_et.hour < 16)
+
 
 def _fetch_prev_day_hl(daily_bars: List[dict], the_day: str) -> Dict[str, float | None]:
     try:
@@ -86,25 +106,30 @@ def _fetch_prev_day_hl(daily_bars: List[dict], the_day: str) -> Dict[str, float 
     prev = None
     for b in daily_bars:
         ts = int(b.get("t"))
-        dt_et = datetime.fromtimestamp(ts/1000.0, tz=timezone.utc).astimezone(NY).date()
+        dt_et = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).astimezone(NY).date()
         if dt_et < tgt:
             prev = b
     if not prev:
         return {"prev_day_high": None, "prev_day_low": None}
     return {"prev_day_high": float(prev.get("h")), "prev_day_low": float(prev.get("l"))}
 
+
 async def _fetch_bars(symbol: str, the_day: str, timespan: str, lookback_days: int = 1) -> dict:
     end = datetime.strptime(the_day, "%Y-%m-%d")
     start = end - timedelta(days=lookback_days)
-    return await mcp_run_tool("get_aggs", {
-        "ticker": symbol,
-        "timespan": timespan,
-        "multiplier": 1,
-        "from_date": _ymd(start),
-        "to_date": _ymd(end),
-        "limit": 5000,
-        "sort": "asc"
-    })
+    return await mcp_run_tool(
+        "get_aggs",
+        {
+            "ticker": symbol,
+            "timespan": timespan,
+            "multiplier": 1,
+            "from_date": _ymd(start),
+            "to_date": _ymd(end),
+            "limit": 5000,
+            "sort": "asc",
+        },
+    )
+
 
 def _opening_range_hl(minute_bars: List[dict], minutes: int = 30) -> Dict[str, float | None]:
     rth = [b for b in minute_bars if _is_rth_bar(int(b.get("t", 0)))]
@@ -115,19 +140,25 @@ def _opening_range_hl(minute_bars: List[dict], minutes: int = 30) -> Dict[str, f
     lows = [float(b.get("l", 0.0)) for b in rth30]
     return {"opening_range_high": max(highs), "opening_range_low": min(lows)}
 
+
 def _rel_volume_5(minute_bars: List[dict]) -> float | None:
-    if len(minute_bars) < 10: return None
+    if len(minute_bars) < 10:
+        return None
     vols = [float(b.get("v", 0.0)) for b in minute_bars]
     last5 = sum(vols[-5:]) / 5.0
-    med = sorted(vols)[len(vols)//2]
-    if med == 0: return None
+    med = sorted(vols)[len(vols) // 2]
+    if med == 0:
+        return None
     return last5 / med
 
+
 def _is_power_hour(minute_bars: List[dict]) -> bool:
-    if not minute_bars: return False
+    if not minute_bars:
+        return False
     ts = int(_last(minute_bars).get("t", 0))
-    dt_et = datetime.fromtimestamp(ts/1000.0, tz=timezone.utc).astimezone(NY)
+    dt_et = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).astimezone(NY)
     return (dt_et.hour == 15) or (dt_et.hour == 16 and dt_et.minute == 0)
+
 
 async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any]:
     # Try minute first
@@ -147,7 +178,7 @@ async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any
         bars_above = _bars_above_vwap(minute_bars, vwap)
         ema9_last = _ema(closes, 9)
         ema20_last = _ema(closes, 20)
-        ema_posture = (ema9_last is not None and ema20_last is not None and ema9_last > ema20_last)
+        ema_posture = ema9_last is not None and ema20_last is not None and ema9_last > ema20_last
         rsi_series = _rsi(closes, 14)
         divergence = _divergence_tag(minute_bars, rsi_series)
         or_hl = _opening_range_hl(minute_bars, 30)
@@ -168,7 +199,7 @@ async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any
             "last_bar_time_eastern": _ts_to_eastern_str(last_ts_ms),
             "is_power_hour": _is_power_hour(minute_bars),
             "source": "minute",
-            "realtime": True
+            "realtime": True,
         }
 
     # Fallback: daily context
@@ -182,7 +213,7 @@ async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any
     closes = [float(b.get("c", 0.0)) for b in daily_bars]
     ema9_last = _ema(closes, 9)
     ema20_last = _ema(closes, 20)
-    ema_posture = (ema9_last is not None and ema20_last is not None and ema9_last > ema20_last)
+    ema_posture = ema9_last is not None and ema20_last is not None and ema9_last > ema20_last
     rsi_series = _rsi(closes, 14)
     divergence = _divergence_tag(daily_bars, rsi_series)
 
@@ -201,5 +232,5 @@ async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any
         "last_bar_time_eastern": None,
         "is_power_hour": False,
         "source": "daily_fallback",
-        "realtime": False
+        "realtime": False,
     }

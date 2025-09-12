@@ -1,13 +1,16 @@
+from typing import Any, Dict, List
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from typing import Any, Dict, List, Tuple
-from app.services.market import fetch_polygon_daily, coerce_bars
+
+from app.services.market import coerce_bars, fetch_polygon_daily
+from app.services.market_status import freshness_from_bars, us_equity_market_open_now
 from app.services.strategy_lib import evaluate_strategies
-from app.services.market_status import us_equity_market_open_now, freshness_from_bars
 
 router = APIRouter(prefix="/premarket", tags=["premarket"])
 
 DEFAULT_MARKET = ["SPY", "QQQ", "I:VIX"]
+
 
 def _levels_from_last_bar(bars: List[dict]) -> Dict[str, float]:
     if not bars:
@@ -18,6 +21,7 @@ def _levels_from_last_bar(bars: List[dict]) -> Dict[str, float]:
         "prev_low": float(last.get("l", 0.0)),
         "prev_close": float(last.get("c", 0.0)),
     }
+
 
 async def _eval_symbol_daily(symbol: str, lookback: int) -> Dict[str, Any]:
     bars = await fetch_polygon_daily(symbol, lookback=lookback)
@@ -38,6 +42,7 @@ async def _eval_symbol_daily(symbol: str, lookback: int) -> Dict[str, Any]:
         "last_bar_time": fresh.get("last_bar_time"),
         "data_freshness": fresh,
     }
+
 
 @router.post("/analysis")
 async def premarket_analysis(body: Dict[str, Any]):
@@ -62,12 +67,14 @@ async def premarket_analysis(body: Dict[str, Any]):
         for sym in [str(s).upper() for s in watchlist]:
             res = await _eval_symbol_daily(sym, lookback=lookback)
             if "error" not in res:
-                ranked.append({
-                    "symbol": sym,
-                    "score": res.get("score"),
-                    "best": res.get("best"),
-                    "last_bar_time": res.get("last_bar_time")
-                })
+                ranked.append(
+                    {
+                        "symbol": sym,
+                        "score": res.get("score"),
+                        "best": res.get("best"),
+                        "last_bar_time": res.get("last_bar_time"),
+                    }
+                )
         ranked = sorted(ranked, key=lambda x: (x["score"] or 0), reverse=True)
 
     # Suggested alerts to consider at the open (client can call /alerts/set)
@@ -78,31 +85,44 @@ async def premarket_analysis(body: Dict[str, Any]):
     if lv:
         if "prev_high" in lv:
             suggested_alerts.append(
-                {"symbol":"SPY","condition":{"type":"price_above","value": lv["prev_high"]},
-                 "note":"Breakout above yesterday's high"}
+                {
+                    "symbol": "SPY",
+                    "condition": {"type": "price_above", "value": lv["prev_high"]},
+                    "note": "Breakout above yesterday's high",
+                }
             )
         if "prev_low" in lv:
             suggested_alerts.append(
-                {"symbol":"SPY","condition":{"type":"price_below","value": lv["prev_low"]},
-                 "note":"Breakdown below yesterday's low"}
+                {
+                    "symbol": "SPY",
+                    "condition": {"type": "price_below", "value": lv["prev_low"]},
+                    "note": "Breakdown below yesterday's low",
+                }
             )
         # VWAP cross is only meaningful intraday; still suggest template:
         suggested_alerts.append(
-            {"symbol":"SPY","condition":{"type":"cross_vwap_up"},
-             "note":"Momentum confirmation intraday (VWAP cross up)"}
+            {
+                "symbol": "SPY",
+                "condition": {"type": "cross_vwap_up"},
+                "note": "Momentum confirmation intraday (VWAP cross up)",
+            }
         )
 
-    return JSONResponse({
-        "status":"ok",
-        "data":{
-            "market_open": us_equity_market_open_now(),
-            "indices": market_ctx,
-            "watchlist_ranked": ranked,
-            "suggested_alerts": suggested_alerts
+    return JSONResponse(
+        {
+            "status": "ok",
+            "data": {
+                "market_open": us_equity_market_open_now(),
+                "indices": market_ctx,
+                "watchlist_ranked": ranked,
+                "suggested_alerts": suggested_alerts,
+            },
         }
-    })
+    )
+
 
 from fastapi import Query
+
 
 @router.get("/analysis")
 async def premarket_analysis_get(watchlist: str = Query(""), lookback: int = Query(90)):

@@ -1,4 +1,4 @@
-from datetime import datetime, date, timezone
+from datetime import date, datetime, timezone
 
 
 def parse_expiration(s: str) -> date:

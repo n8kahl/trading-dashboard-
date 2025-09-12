@@ -1,34 +1,46 @@
-from typing import Any, Dict, Optional, Literal
-import os, httpx
+import os
+from typing import Any, Dict, Literal, Optional
+
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
+
 class ExecBody(BaseModel):
     op: str
     args: Optional[Dict[str, Any]] = None
 
+
 class OptionsPickArgs(BaseModel):
     symbol: str
     side: Literal["long_call", "long_put", "short_call", "short_put"]
-    horizon: Literal["intra","day","week"] = "intra"
+    horizon: Literal["intra", "day", "week"] = "intra"
     n: int = Field(default=5, ge=1, le=10)
+
 
 @router.get("/actions")
 def assistant_actions():
-    return {"ok": True, "actions": [{
-        "op": "options.pick",
-        "title": "Pick closest-to-ATM options (stub)",
-        "description": "Returns N near-ATM contracts for a ticker/side/horizon.",
-        "args_schema": OptionsPickArgs.model_json_schema(),
-        "stable": True,
-        "id": "options.pick"
-    }]}
+    return {
+        "ok": True,
+        "actions": [
+            {
+                "op": "options.pick",
+                "title": "Pick closest-to-ATM options (stub)",
+                "description": "Returns N near-ATM contracts for a ticker/side/horizon.",
+                "args_schema": OptionsPickArgs.model_json_schema(),
+                "stable": True,
+                "id": "options.pick",
+            }
+        ],
+    }
+
 
 def _local_base() -> str:
     # When running inside the same app container, call our own server on PORT
-    return f"http://127.0.0.1:{os.getenv('PORT','8000')}"
+    return f"http://127.0.0.1:{os.getenv('PORT', '8000')}"
+
 
 async def _proxy_options_pick(payload: Dict[str, Any]) -> Dict[str, Any]:
     url = _local_base() + "/api/v1/options/pick"
@@ -42,6 +54,7 @@ async def _proxy_options_pick(payload: Dict[str, Any]) -> Dict[str, Any]:
 EXEC_HANDLERS = {
     "options.pick": _proxy_options_pick,
 }
+
 
 @router.post("/exec")
 async def assistant_exec(body: ExecBody):

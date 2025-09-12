@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 from datetime import datetime, time
+from typing import Any, Dict
 from zoneinfo import ZoneInfo
-from typing import Dict, Any
 
 from app.config.policy import POLICY
 
 # We treat windows in ET (New York)
 _ET = ZoneInfo("America/New_York")
+
 
 def gate_session(now: datetime | None = None) -> bool:
     """
@@ -21,6 +23,7 @@ def gate_session(now: datetime | None = None) -> bool:
         if time(sh, sm) <= local_t <= time(eh, em):
             return True
     return False
+
 
 def gate_equity_liquidity(metrics: Dict[str, Any]) -> bool:
     """
@@ -37,6 +40,7 @@ def gate_equity_liquidity(metrics: Dict[str, Any]) -> bool:
     g = POLICY.equities
     return (rvol >= g.rvol_min) and (spread <= g.spread_pct_max) and (dvol >= g.dollar_vol_min)
 
+
 def gate_options_quality(metrics: Dict[str, Any]) -> bool:
     """
     metrics expects:
@@ -52,12 +56,8 @@ def gate_options_quality(metrics: Dict[str, Any]) -> bool:
     vol = int(metrics.get("vol", 0))
     dte = int(metrics.get("dte", 0))
     g = POLICY.options
-    return (
-        spread <= g.spread_pct_max and
-        oi >= g.oi_min and
-        vol >= g.vol_min and
-        g.dte_min <= dte <= g.dte_max
-    )
+    return spread <= g.spread_pct_max and oi >= g.oi_min and vol >= g.vol_min and g.dte_min <= dte <= g.dte_max
+
 
 def entry_checks(metrics: Dict[str, Any]) -> bool:
     """

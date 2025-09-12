@@ -1,29 +1,33 @@
 from __future__ import annotations
+
+import os
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
-import os
-import re
-from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.models import Base
-from app.services.paper_engine import SubmitIntent, submit, positions, pnl_for_date
 from app.services.decision_artifacts import build_artifact
+from app.services.paper_engine import SubmitIntent, pnl_for_date, positions, submit
 
 router = APIRouter(prefix="/paper", tags=["paper"])
 
 _engine = None
 _SessionLocal = None
 
+
 def _normalize_db_url(url: str) -> str:
     if url.startswith("postgres://"):
-        url = "postgresql+psycopg2://" + url[len("postgres://"):]
+        url = "postgresql+psycopg2://" + url[len("postgres://") :]
     if url.startswith("postgresql://"):
-        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
+        url = "postgresql+psycopg2://" + url[len("postgresql://") :]
     if "sslmode=" not in url:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}sslmode=require"
     return url
+
 
 def _ensure_db():
     global _engine, _SessionLocal
@@ -37,6 +41,7 @@ def _ensure_db():
         _SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
     return _engine, _SessionLocal
 
+
 def get_db():
     _engine, SessionLocal = _ensure_db()
     db = SessionLocal()
@@ -45,6 +50,7 @@ def get_db():
     finally:
         db.close()
 
+
 @router.get("/health")
 def paper_health():
     try:
@@ -52,6 +58,7 @@ def paper_health():
         return {"ok": True, "db": "ready"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
 
 class SubmitReq(BaseModel):
     symbol: str = Field(..., description="Ticker symbol")
@@ -66,21 +73,25 @@ class SubmitReq(BaseModel):
     stop_r: Optional[float] = None
     tp_r: Optional[float] = None
 
+
 @router.post("/submit")
 def paper_submit(req: SubmitReq, db: Session = Depends(get_db)):
     intent = SubmitIntent(**req.dict())
     res = submit(db, intent)
     if not res.get("ok"):
-        raise HTTPException(status_code=400, detail=res.get("error","submit failed"))
+        raise HTTPException(status_code=400, detail=res.get("error", "submit failed"))
     return res
+
 
 @router.get("/positions")
 def paper_positions(db: Session = Depends(get_db)):
     return {"positions": positions(db)}
 
+
 @router.get("/pnl")
 def paper_pnl(date: Optional[str] = None, db: Session = Depends(get_db)):
     return pnl_for_date(db, date)
+
 
 class ArtifactReq(BaseModel):
     symbol: str
@@ -88,6 +99,7 @@ class ArtifactReq(BaseModel):
     score: float
     expected_r: float
     features: Dict[str, Any] = {}
+
 
 @router.post("/artifact-log")
 def paper_artifact(req: ArtifactReq):

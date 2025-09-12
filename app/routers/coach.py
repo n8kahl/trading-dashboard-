@@ -1,15 +1,20 @@
+import datetime as dt
+import os
+from typing import Any, Dict, List
+
+import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-import datetime as dt, os, httpx
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 FMP_KEY = os.getenv("FMP_API_KEY")
 
+
 class MarketOpenReq(BaseModel):
-    horizon: str = "day"   # or "week"
+    horizon: str = "day"  # or "week"
     watchlist: List[str]
     window_days: int = 30  # lookahead window
+
 
 async def _fmp_earnings_for_symbols(symbols: List[str], window_days: int) -> Dict[str, Any]:
     if not FMP_KEY or not symbols:
@@ -32,13 +37,16 @@ async def _fmp_earnings_for_symbols(symbols: List[str], window_days: int) -> Dic
     for row in rows:
         when = row.get("time") or row.get("when")  # sometimes "bmo"/"amc"
         date = row.get("date") or row.get("epsCalendarDate") or row.get("reportedDate")
-        out.append({
-            "symbol": (row.get("symbol") or "").upper(),
-            "date": date,
-            "when": when,
-            "estimate": row.get("epsEstimated"),
-        })
+        out.append(
+            {
+                "symbol": (row.get("symbol") or "").upper(),
+                "date": date,
+                "when": when,
+                "estimate": row.get("epsEstimated"),
+            }
+        )
     return {"earnings": out} if out else {"note": "No earnings data available"}
+
 
 @router.post("/market-open")
 async def market_open(req: MarketOpenReq):
@@ -48,8 +56,6 @@ async def market_open(req: MarketOpenReq):
         "ok": True,
         "watchlist": [s.upper() for s in req.watchlist],
         "horizon": req.horizon,
-        "data": {
-            "earnings_ahead": earn
-        }
+        "data": {"earnings_ahead": earn},
     }
     return payload

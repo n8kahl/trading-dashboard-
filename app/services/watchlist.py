@@ -1,7 +1,7 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 from app.services.stream import STREAM
-from app.services.strategy_lib import evaluate_strategies, apply_power_hour_bias
-from app.routers.strategies import _is_power_hour_ct  # reuse
+
 
 def rank_from_snapshot(symbols: List[str], n_bars: int = 120, timeframe: str = "minute") -> List[Dict[str, Any]]:
     """

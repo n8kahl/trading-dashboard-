@@ -1,6 +1,11 @@
-import os, time, asyncio, urllib.parse
-from typing import Dict, Any, List, Optional
+import asyncio
+import os
+import time
+import urllib.parse
+from typing import Any, Dict, List, Optional
+
 import httpx
+
 from app.config import OPTIONS_CACHE_TTL_SEC
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY") or os.getenv("POLYGON_APIKEY") or os.getenv("POLYGON_KEY")
@@ -9,25 +14,30 @@ CHAIN_URL_TMPL = "https://api.polygon.io/v3/snapshot/options/{underlying}"
 # in-memory cache: key -> (ts, data)
 _CACHE: Dict[str, Any] = {}
 
+
 def _now() -> float:
     return time.time()
 
+
 def _cache_get(key: str) -> Optional[Any]:
     v = _CACHE.get(key)
-    if not v: return None
+    if not v:
+        return None
     ts, data = v
     if _now() - ts > OPTIONS_CACHE_TTL_SEC:
         return None
     return data
 
+
 def _cache_set(key: str, data: Any) -> None:
     _CACHE[key] = (_now(), data)
 
+
 def _norm_contract(rec: Dict[str, Any]) -> Dict[str, Any]:
     details = rec.get("details") or {}
-    greeks  = rec.get("greeks") or {}
-    last_q  = rec.get("last_quote") or {}
-    day     = rec.get("day") or {}
+    greeks = rec.get("greeks") or {}
+    last_q = rec.get("last_quote") or {}
+    day = rec.get("day") or {}
     out = {
         "symbol": details.get("ticker"),
         "type": (details.get("contract_type") or "").upper(),
@@ -40,21 +50,26 @@ def _norm_contract(rec: Dict[str, Any]) -> Dict[str, Any]:
         "open_interest": rec.get("open_interest") or 0,
         "volume": day.get("volume") or 0,
     }
-    for k in ("strike","bid","ask","delta","iv"):
+    for k in ("strike", "bid", "ask", "delta", "iv"):
         try:
-            if out[k] is not None: out[k] = float(out[k])
+            if out[k] is not None:
+                out[k] = float(out[k])
         except Exception:
             out[k] = None
-    try: out["open_interest"] = int(out["open_interest"])
-    except Exception: out["open_interest"] = 0
-    try: out["volume"] = int(out["volume"])
-    except Exception: out["volume"] = 0
+    try:
+        out["open_interest"] = int(out["open_interest"])
+    except Exception:
+        out["open_interest"] = 0
+    try:
+        out["volume"] = int(out["volume"])
+    except Exception:
+        out["volume"] = 0
     return out
 
-async def fetch_option_chain_snapshot(underlying: str,
-                                      contract_type: Optional[str]=None,
-                                      expiration_date: Optional[str]=None,
-                                      limit: int = 250) -> List[Dict[str, Any]]:
+
+async def fetch_option_chain_snapshot(
+    underlying: str, contract_type: Optional[str] = None, expiration_date: Optional[str] = None, limit: int = 250
+) -> List[Dict[str, Any]]:
     """
     Fetch Polygon Option Chain Snapshot for an underlying (paginated).
     Uses Authorization header so pagination (next_url) never loses auth.
@@ -83,7 +98,8 @@ async def fetch_option_chain_snapshot(underlying: str,
         for _ in range(20):
             r = await client.get(next_url, params=next_params)
             if r.status_code == 429:
-                await asyncio.sleep(0.5); continue
+                await asyncio.sleep(0.5)
+                continue
             r.raise_for_status()
             data = r.json()
             results = data.get("results") or []

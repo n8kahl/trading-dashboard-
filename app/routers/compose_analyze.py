@@ -1,19 +1,23 @@
-from fastapi import APIRouter, HTTPException
-from .common import ok
-from app.services.compose import build_context_from_polygon
-from app.services.scoring_engine import score_confluence, score_all
-from app.services.plan_engine import build_plan
-from app.services.risk_engine import assess_risk
-from app.services import store
 from datetime import datetime, timezone
 
+from fastapi import APIRouter, HTTPException
+
+from app.services import store
+from app.services.compose import build_context_from_polygon
+from app.services.plan_engine import build_plan
+from app.services.risk_engine import assess_risk
+from app.services.scoring_engine import score_all, score_confluence
+
+from .common import ok
+
 router = APIRouter(prefix="/", tags=["compose"])
+
 
 @router.post("/compose-and-analyze")
 async def compose_and_analyze(body: dict):
     symbol = (body.get("symbol") or "").upper()
     the_day = body.get("date")
-    strategy_id = (body.get("strategy_id") or "auto")
+    strategy_id = body.get("strategy_id") or "auto"
     overrides = body.get("overrides", {}) or {}
 
     if not symbol:
@@ -27,11 +31,13 @@ async def compose_and_analyze(body: dict):
     # If we failed to build a context, return diagnostics (no logging)
     if isinstance(ctx, dict) and ctx.get("_error"):
         warnings = ["Data fetch failed; see context_error._diag for details."]
-        return ok({
-            "input": {"symbol": symbol, "date": the_day, "strategy_id": strategy_id},
-            "context_error": ctx,
-            "warnings": warnings
-        })
+        return ok(
+            {
+                "input": {"symbol": symbol, "date": the_day, "strategy_id": strategy_id},
+                "context_error": ctx,
+                "warnings": warnings,
+            }
+        )
 
     # 2) Merge optional overrides
     ctx.update({k: v for k, v in (overrides or {}).items() if v is not None})
@@ -62,12 +68,7 @@ async def compose_and_analyze(body: dict):
 
     # 8) Auto-log analysis
     analysis_id = store.log_analysis(
-        symbol=symbol,
-        date=the_day,
-        strategy_id=chosen_id,
-        context=ctx,
-        analysis=analysis,
-        warnings=warnings
+        symbol=symbol, date=the_day, strategy_id=chosen_id, context=ctx, analysis=analysis, warnings=warnings
     )
 
     # 9) Return with leaderboard if auto
@@ -78,7 +79,7 @@ async def compose_and_analyze(body: dict):
         "analysis": analysis,
         "plan": plan,
         "risk": risk,
-        "warnings": warnings
+        "warnings": warnings,
     }
     if leaderboard is not None:
         payload["leaderboard"] = leaderboard

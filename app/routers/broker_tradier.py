@@ -1,23 +1,23 @@
-from fastapi import APIRouter, HTTPException
 import httpx
+from fastapi import APIRouter, HTTPException
 
 from app.core.settings import settings
 from app.services.tradier_trading import (
     StrategyOrder,
+)
+from app.services.tradier_trading import (
     place_order as tradier_place_order,
 )
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
+
 def _headers():
     token = settings.TRADIER_ACCESS_TOKEN
     if not token:
         raise HTTPException(status_code=500, detail="TRADIER_ACCESS_TOKEN not set")
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "User-Agent": "trading-assistant/1.0"
-    }
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "trading-assistant/1.0"}
+
 
 @router.get("/account")
 async def account_overview():
@@ -60,7 +60,7 @@ async def account_overview():
             "account_id": settings.TRADIER_ACCOUNT_ID,
             "sizing": sizing,
             "positions": positions,
-            "raw": {"balances": balances}  # keep full balances for now (easy debugging)
+            "raw": {"balances": balances},  # keep full balances for now (easy debugging)
         }
 
 

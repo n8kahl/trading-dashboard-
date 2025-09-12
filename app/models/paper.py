@@ -1,9 +1,13 @@
 from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+from sqlalchemy import JSON, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Integer, Float, DateTime, JSON
+
 from .base import Base
+
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
@@ -24,6 +28,7 @@ class PaperTrade(Base):
     outcome_r: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     meta: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+
 class PaperPosition(Base):
     __tablename__ = "paper_positions"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -31,6 +36,7 @@ class PaperPosition(Base):
     qty: Mapped[int] = mapped_column(Integer)
     avg_px: Mapped[float] = mapped_column(Float)
     opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class PaperFill(Base):
     __tablename__ = "paper_fills"

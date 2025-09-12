@@ -1,30 +1,38 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import Literal, List, Optional, Dict, Any, AsyncIterator
-import os, math, asyncio, datetime as dt
+
+import asyncio
+import datetime as dt
 import logging
-from app.integrations.tradier import TradierClient
+import math
+import os
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
+
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from app.integrations.tradier import TradierClient
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/options", tags=["options"])
 
+
 # ---------- Models ----------
 class OptionsPickRequest(BaseModel):
     symbol: str
-    side: Literal["long_call","long_put","short_call","short_put"]
-    horizon: Literal["intra","day","week"] = "intra"
+    side: Literal["long_call", "long_put", "short_call", "short_put"]
+    horizon: Literal["intra", "day", "week"] = "intra"
     n: int = Field(default=5, ge=1, le=10)
     max_dte: Optional[int] = None
-    prefer: Optional[Literal["tradier","auto"]] = "auto"  # NEW: force Tradier if desired
+    prefer: Optional[Literal["tradier", "auto"]] = "auto"  # NEW: force Tradier if desired
+
 
 class OptionContract(BaseModel):
     symbol: str
     expiration: str
     strike: float
-    option_type: Literal["call","put"]
+    option_type: Literal["call", "put"]
     delta: Optional[float] = None
     bid: Optional[float] = None
     ask: Optional[float] = None
@@ -35,6 +43,7 @@ class OptionContract(BaseModel):
     dte: Optional[int] = None
     score: Optional[float] = None
 
+
 class OptionsPickResponse(BaseModel):
     ok: bool
     env: str
@@ -42,6 +51,7 @@ class OptionsPickResponse(BaseModel):
     count_considered: int
     picks: List[OptionContract]
     source: Optional[str] = None  # NEW: "tradier" or "polygon"
+
 
 # ---------- Config ----------
 TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
@@ -57,9 +67,11 @@ async def get_tradier_client() -> AsyncIterator[TradierClient]:
     finally:
         await client.close()
 
+
 # ---------- Helpers ----------
 def _today_utc() -> dt.date:
     return dt.datetime.now(UTC).date()
+
 
 def _dte(expiration: str) -> Optional[int]:
     try:
@@ -67,6 +79,7 @@ def _dte(expiration: str) -> Optional[int]:
         return (d - _today_utc()).days
     except Exception:
         return None
+
 
 def _safe_float(x: Any) -> Optional[float]:
     try:
@@ -77,26 +90,31 @@ def _safe_float(x: Any) -> Optional[float]:
         logger.exception("failed to parse float")
     return None
 
+
 def _safe_int(x: Any) -> Optional[int]:
     try:
         return int(x)
     except Exception:
         return None
 
-def _calc_mark(bid: Optional[float], ask: Optional[float], last: Optional[float]=None) -> Optional[float]:
+
+def _calc_mark(bid: Optional[float], ask: Optional[float], last: Optional[float] = None) -> Optional[float]:
     if bid is not None and ask is not None:
         return round((bid + ask) / 2, 4)
     return last
+
 
 def _calc_spread_pct(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
     if bid is not None and ask is not None and ask > 0:
         return round((ask - bid) / ask, 6)
     return None
 
+
 def _horizon_dte_cap(horizon: str, max_dte_param: Optional[int]) -> int:
     if max_dte_param is not None:
         return max_dte_param
-    return {"intra":2, "day":3, "week":7}.get(horizon, 5)
+    return {"intra": 2, "day": 3, "week": 7}.get(horizon, 5)
+
 
 def _wanted_type(side: str) -> str:
     return "call" if side.endswith("call") else "put"
@@ -113,10 +131,12 @@ async def _tradier_json(client: TradierClient, path: str, params: Dict[str, Any]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"tradier_json_error: {e}")
 
+
 async def _tradier_quote(client: TradierClient, symbol: str) -> Optional[float]:
     data = await client.get_quotes([symbol])
     q = data.get(symbol) or {}
     return _safe_float(q.get("last")) or _safe_float(q.get("close"))
+
 
 async def _tradier_expirations(client: TradierClient, symbol: str) -> List[str]:
     data = await _tradier_json(client, "/markets/options/expirations", {"symbol": symbol})
@@ -125,7 +145,10 @@ async def _tradier_expirations(client: TradierClient, symbol: str) -> List[str]:
         return []
     return [str(x) for x in (exps if isinstance(exps, list) else [exps])]
 
-async def _tradier_chain(client: TradierClient, symbol: str, expiration: str, opt_type: Optional[str]) -> List[Dict[str, Any]]:
+
+async def _tradier_chain(
+    client: TradierClient, symbol: str, expiration: str, opt_type: Optional[str]
+) -> List[Dict[str, Any]]:
     params = {"symbol": symbol, "expiration": expiration, "greeks": "true"}
     if opt_type in ("call", "put"):
         params["type"] = opt_type
@@ -134,6 +157,8 @@ async def _tradier_chain(client: TradierClient, symbol: str, expiration: str, op
     if not items:
         return []
     return list(items if isinstance(items, list) else [items])
+
+
 # ---------- Polygon (fallback) ----------
 async def _polygon_chain(symbol: str, max_count: int = 500) -> List[Dict[str, Any]]:
     if not POLYGON_KEY:
@@ -151,18 +176,26 @@ async def _polygon_chain(symbol: str, max_count: int = 500) -> List[Dict[str, An
     results = j.get("results") or []
     out = []
     for it in results:
-        out.append({
-            "symbol": it.get("ticker") or it.get("symbol"),
-            "expiration_date": it.get("expiration_date"),
-            "strike": _safe_float(it.get("strike_price")),
-            "option_type": it.get("contract_type"),
-            "bid": None, "ask": None, "last": None,
-            "volume": None, "open_interest": None
-        })
+        out.append(
+            {
+                "symbol": it.get("ticker") or it.get("symbol"),
+                "expiration_date": it.get("expiration_date"),
+                "strike": _safe_float(it.get("strike_price")),
+                "option_type": it.get("contract_type"),
+                "bid": None,
+                "ask": None,
+                "last": None,
+                "volume": None,
+                "open_interest": None,
+            }
+        )
     return out
 
+
 # ---------- Picker ----------
-async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, horizon: str, n: int) -> OptionsPickResponse:
+async def _pick_from_tradier(
+    client: TradierClient, symbol: str, side: str, horizon: str, n: int
+) -> OptionsPickResponse:
     opt_type = "call" if side.endswith("call") else "put"
     dte_cap = _horizon_dte_cap(horizon, None)
     tc = client
@@ -189,23 +222,40 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
             last_px = _safe_float(row.get("last"))
             oi = _safe_int(row.get("open_interest"))
             vol = _safe_int(row.get("volume"))
-            g = (row.get("greeks") or {})
+            g = row.get("greeks") or {}
             delta = _safe_float(g.get("delta"))
             mark = _calc_mark(bid, ask, last_px)
             spread = _calc_spread_pct(bid, ask)
-            prelim.append(OptionContract(
-                symbol=str(row.get("symbol", "")),
-                expiration=str(row.get("expiration_date", exp)),
-                strike=strike or 0.0,
-                option_type=opt_type,
-                delta=delta,
-                bid=bid, ask=ask, mark=mark, spread_pct=spread,
-                open_interest=oi, volume=vol,
-                dte=_dte(exp)
-            ))
+            prelim.append(
+                OptionContract(
+                    symbol=str(row.get("symbol", "")),
+                    expiration=str(row.get("expiration_date", exp)),
+                    strike=strike or 0.0,
+                    option_type=opt_type,
+                    delta=delta,
+                    bid=bid,
+                    ask=ask,
+                    mark=mark,
+                    spread_pct=spread,
+                    open_interest=oi,
+                    volume=vol,
+                    dte=_dte(exp),
+                )
+            )
 
     # Enrich any missing values with batch quotes
-    need_symbols = [x.symbol for x in prelim if (x.bid is None or x.ask is None or x.mark is None or x.volume is None or x.open_interest is None or x.delta is None)]
+    need_symbols = [
+        x.symbol
+        for x in prelim
+        if (
+            x.bid is None
+            or x.ask is None
+            or x.mark is None
+            or x.volume is None
+            or x.open_interest is None
+            or x.delta is None
+        )
+    ]
     if need_symbols:
         quotes = await tc.get_quotes(need_symbols)
         for oc in prelim:
@@ -216,7 +266,7 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
                 last_px = _safe_float(q.get("last"))
                 vol = _safe_int(q.get("volume"))
                 oi = _safe_int(q.get("open_interest"))
-                g = (q.get("greeks") or {})
+                g = q.get("greeks") or {}
                 delta = _safe_float(g.get("delta"))
                 oc.bid = oc.bid if oc.bid is not None else bid
                 oc.ask = oc.ask if oc.ask is not None else ask
@@ -229,10 +279,7 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
     missing_delta = [oc for oc in prelim if oc.delta is None]
     if missing_delta:
         tasks = [
-            tc.get_option_greeks(
-                symbol, oc.expiration, oc.strike, option_type=oc.option_type
-            )
-            for oc in missing_delta
+            tc.get_option_greeks(symbol, oc.expiration, oc.strike, option_type=oc.option_type) for oc in missing_delta
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for oc, res in zip(missing_delta, results):
@@ -247,7 +294,7 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
             dist = abs(oc.strike - last_px_underlying)
         else:
             dist = 10.0
-        spread_pen = (oc.spread_pct if oc.spread_pct is not None else 0.05)
+        spread_pen = oc.spread_pct if oc.spread_pct is not None else 0.05
         vol = oc.volume or 0
         return (dist) + (spread_pen * 5.0) - (min(vol, 50000) / 100000.0)
 
@@ -264,19 +311,21 @@ async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, hori
         picks.append(oc)
 
     return OptionsPickResponse(
-        ok=True, env="tradier_sandbox", note=ENV_NOTE,
-        count_considered=len(filtered), picks=picks, source="tradier"
+        ok=True, env="tradier_sandbox", note=ENV_NOTE, count_considered=len(filtered), picks=picks, source="tradier"
     )
+
 
 async def _fallback_polygon(symbol: str, side: str, horizon: str, n: int) -> OptionsPickResponse:
     opt_type = "call" if side.endswith("call") else "put"
     items = await _polygon_chain(symbol, max_count=500)
     if not items:
         raise HTTPException(status_code=502, detail="polygon_fallback_empty")
+
     # Nearest DTE then strike (no quotes available here)
     def _dte_local(exp: str) -> int:
         v = _dte(exp)
         return v if v is not None else 999
+
     filtered = []
     for it in items:
         if (it.get("option_type")) != opt_type:
@@ -288,16 +337,31 @@ async def _fallback_polygon(symbol: str, side: str, horizon: str, n: int) -> Opt
     filtered.sort(key=lambda x: (x[1], abs(x[2])))
     out: List[OptionContract] = []
     for exp, dte, strike, it in filtered[:n]:
-        out.append(OptionContract(
-            symbol=str(it.get("symbol") or it.get("ticker")),
-            expiration=exp, strike=strike, option_type=opt_type,
-            dte=dte, bid=None, ask=None, mark=None, spread_pct=None,
-            open_interest=None, volume=None, score=None
-        ))
+        out.append(
+            OptionContract(
+                symbol=str(it.get("symbol") or it.get("ticker")),
+                expiration=exp,
+                strike=strike,
+                option_type=opt_type,
+                dte=dte,
+                bid=None,
+                ask=None,
+                mark=None,
+                spread_pct=None,
+                open_interest=None,
+                volume=None,
+                score=None,
+            )
+        )
     return OptionsPickResponse(
-        ok=True, env="polygon_fallback", note="polygon reference contracts (no quotes)",
-        count_considered=len(filtered), picks=out, source="polygon"
+        ok=True,
+        env="polygon_fallback",
+        note="polygon reference contracts (no quotes)",
+        count_considered=len(filtered),
+        picks=out,
+        source="polygon",
     )
+
 
 # ---------- Route ----------
 @router.post("/pick", response_model=OptionsPickResponse)
@@ -309,7 +373,7 @@ async def options_pick(
     Primary: Tradier Sandbox delayed chain + quotes enrichment.
     Fallback: Polygon reference when Tradier is unavailable or empty (unless prefer='tradier').
     """
-    force_tradier = (req.prefer == "tradier")
+    force_tradier = req.prefer == "tradier"
     if not TRADIER_ACCESS_TOKEN and not force_tradier:
         if POLYGON_KEY:
             return await _fallback_polygon(req.symbol, req.side, req.horizon, req.n)
@@ -322,7 +386,14 @@ async def options_pick(
             return res
         if force_tradier:
             # No fallback when forcing
-            return OptionsPickResponse(ok=True, env="tradier_sandbox", note="no contracts found", count_considered=0, picks=[], source="tradier")
+            return OptionsPickResponse(
+                ok=True,
+                env="tradier_sandbox",
+                note="no contracts found",
+                count_considered=0,
+                picks=[],
+                source="tradier",
+            )
     except HTTPException as he:
         if not force_tradier and POLYGON_KEY:
             return await _fallback_polygon(req.symbol, req.side, req.horizon, req.n)
@@ -334,4 +405,6 @@ async def options_pick(
 
     if not force_tradier and POLYGON_KEY:
         return await _fallback_polygon(req.symbol, req.side, req.horizon, req.n)
-    return OptionsPickResponse(ok=True, env="tradier_sandbox", note="no contracts found", count_considered=0, picks=[], source="tradier")
+    return OptionsPickResponse(
+        ok=True, env="tradier_sandbox", note="no contracts found", count_considered=0, picks=[], source="tradier"
+    )

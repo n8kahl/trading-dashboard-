@@ -1,13 +1,16 @@
 from fastapi.testclient import TestClient
+
 from app.main import app
 from app.routers import options
 
 
 def test_options_pick_injects_client(monkeypatch):
     monkeypatch.setattr(options, "TRADIER_ACCESS_TOKEN", "token")
+
     class DummyClient:
         def __init__(self):
             self.closed = False
+
         async def close(self):
             self.closed = True
 

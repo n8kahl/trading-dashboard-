@@ -1,9 +1,11 @@
 from fastapi import APIRouter
-from starlette.responses import JSONResponse
 from sqlalchemy import text
+from starlette.responses import JSONResponse
+
 from app.db import db_session
 
 router = APIRouter(prefix="/diag/db", tags=["diag-db"])
+
 
 @router.post("/migrate")
 def migrate_alerts_table():
@@ -20,7 +22,8 @@ def migrate_alerts_table():
                 return JSONResponse({"ok": False, "error": "DB not configured"}, status_code=503)
 
             # 1) If table doesn't exist, create it fresh to spec
-            db.execute(text("""
+            db.execute(
+                text("""
             DO $$
             BEGIN
               IF to_regclass('public.alerts') IS NULL THEN
@@ -36,10 +39,12 @@ def migrate_alerts_table():
                 );
               END IF;
             END$$;
-            """))
+            """)
+            )
 
             # 2) Rename legacy 'active' -> 'is_active' if needed
-            db.execute(text("""
+            db.execute(
+                text("""
             DO $$
             BEGIN
               IF EXISTS (
@@ -52,7 +57,8 @@ def migrate_alerts_table():
                 ALTER TABLE alerts RENAME COLUMN active TO is_active;
               END IF;
             END$$;
-            """))
+            """)
+            )
 
             # 3) Ensure is_active exists
             db.execute(text("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))

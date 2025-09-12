@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 _TZ = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Chicago"))
 
+
 def allow_0dte() -> bool:
     """
     Global switch for 0DTE contracts.
@@ -12,6 +13,7 @@ def allow_0dte() -> bool:
     """
     val = os.getenv("ALLOW_0DTE", "true").strip().lower()
     return val in ("1", "true", "yes", "on")
+
 
 def trading_session_now() -> dict:
     now = datetime.now(_TZ)

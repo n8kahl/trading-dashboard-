@@ -1,5 +1,6 @@
-from pathlib import Path
 import sys
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 # Ensure the application package is importable
@@ -8,6 +9,7 @@ sys.path.append(str(ROOT))
 from app.main import app  # noqa: E402
 
 client = TestClient(app)
+
 
 def test_assistant_actions_returns_actions():
     response = client.get("/api/v1/assistant/actions")
@@ -32,9 +34,7 @@ def test_assistant_exec_dispatches_valid_op(monkeypatch):
 
     monkeypatch.setitem(assistant_simple.EXEC_HANDLERS, "options.pick", stub)
 
-    response = client.post(
-        "/api/v1/assistant/exec", json={"op": "options.pick", "args": {"symbol": "AAPL"}}
-    )
+    response = client.post("/api/v1/assistant/exec", json={"op": "options.pick", "args": {"symbol": "AAPL"}})
     assert response.status_code == 200
     assert response.json() == {"ok": True, "handled": True}
     assert captured["payload"] == {"symbol": "AAPL"}

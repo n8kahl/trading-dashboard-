@@ -1,7 +1,8 @@
-from pathlib import Path
-import sys, asyncio, importlib
+import asyncio
+import importlib
+import sys
 from contextlib import contextmanager
-from types import SimpleNamespace
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -10,6 +11,7 @@ sys.path.append(str(ROOT))
 def test_alerts_poller(monkeypatch):
     monkeypatch.setenv("POLYGON_API_KEY", "x")
     import app.services.poller as poller
+
     importlib.reload(poller)
 
     async def fake_price(symbol, timeframe):
@@ -21,12 +23,14 @@ def test_alerts_poller(monkeypatch):
     class DummyResult:
         def __init__(self, rows):
             self.rows = rows
+
         def fetchall(self):
             return self.rows
 
     class DummyDB:
         def __init__(self):
             self.queries = []
+
         def execute(self, query, params=None):
             self.queries.append((query, params))
             if query.startswith("SELECT id, symbol"):
@@ -51,6 +55,7 @@ def test_alerts_poller(monkeypatch):
 def test_monitor_loop(monkeypatch):
     monkeypatch.setenv("POLYGON_API_KEY", "x")
     import types
+
     db_pkg = types.ModuleType("app.db")
     db_pkg.__path__ = []
     sys.modules["app.db"] = db_pkg
@@ -60,6 +65,7 @@ def test_monitor_loop(monkeypatch):
     sys.modules["app.db.db"] = db_mod
 
     import app.services.monitor as monitor
+
     importlib.reload(monitor)
 
     async def fake_price(symbol):
@@ -77,12 +83,14 @@ def test_monitor_loop(monkeypatch):
     class DummySession:
         def __enter__(self):
             return object()
+
         def __exit__(self, exc_type, exc, tb):
             pass
 
     monkeypatch.setattr(monitor, "SessionLocal", lambda: DummySession())
 
     import builtins
+
     logs = []
     monkeypatch.setattr(builtins, "print", lambda *a, **k: logs.append(" ".join(str(x) for x in a)))
 

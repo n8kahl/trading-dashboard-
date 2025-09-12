@@ -1,9 +1,10 @@
 import logging
 import os
 import time
-import httpx
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
 TRADIER_ACCOUNT_ID = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
 TRADIER_BASE = os.getenv("TRADIER_BASE", "").strip()
 
+
 def _base_url() -> str:
     if TRADIER_BASE:
         base = TRADIER_BASE.rstrip("/")
@@ -19,16 +21,19 @@ def _base_url() -> str:
         base = "https://sandbox.tradier.com" if TRADIER_ENV == "sandbox" else "https://api.tradier.com"
     return base + "/v1"
 
+
 DEFAULT_HEADERS = {
     "Authorization": f"Bearer {TRADIER_ACCESS_TOKEN}",
     "Accept": "application/json",
 }
 
+
 def _log(event: str, detail: Dict[str, Any]) -> None:
     # token-safe json-ish line logging
     safe = dict(detail)
     safe.pop("Authorization", None)
-    logger.info(f"[{int(time.time()*1000)}] tradier.{event} {safe}")
+    logger.info(f"[{int(time.time() * 1000)}] tradier.{event} {safe}")
+
 
 class TradierClient:
     def __init__(self, timeout: float = 10.0) -> None:
@@ -42,9 +47,7 @@ class TradierClient:
 
     async def _session(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                base_url=self.base, timeout=self.timeout, headers=DEFAULT_HEADERS
-            )
+            self._client = httpx.AsyncClient(base_url=self.base, timeout=self.timeout, headers=DEFAULT_HEADERS)
         return self._client
 
     async def close(self) -> None:
@@ -123,9 +126,7 @@ class TradierClient:
         r.raise_for_status()
         return r.json()
 
-    async def get_option_greeks(
-        self, symbol: str, expiration: str, strike: float, option_type: str
-    ) -> Dict[str, Any]:
+    async def get_option_greeks(self, symbol: str, expiration: str, strike: float, option_type: str) -> Dict[str, Any]:
         """Fetch greek data for a specific option contract.
 
         Wraps the `/markets/options/greeks` endpoint.

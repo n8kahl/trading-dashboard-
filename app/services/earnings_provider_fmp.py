@@ -1,23 +1,29 @@
 from __future__ import annotations
-from typing import List, Dict, Any
+
+import os
 from datetime import datetime, timedelta, timezone
-import os, httpx
+from typing import Any, Dict, List
 
-FMP_KEY = os.getenv("FMP_API_KEY","")
+import httpx
 
-def _iso(d): return d.strftime("%Y-%m-%d")
+FMP_KEY = os.getenv("FMP_API_KEY", "")
 
-async def fetch_earnings_ahead_fmp(watchlist: List[str]) -> Dict[str,Any]:
+
+def _iso(d):
+    return d.strftime("%Y-%m-%d")
+
+
+async def fetch_earnings_ahead_fmp(watchlist: List[str]) -> Dict[str, Any]:
     """Free earnings calendar next 7 days via FMP.
-       Returns: {"note": <str|None>, "earnings": [ {symbol,date,when}... ] }
-       when: lower-case bmo/amc/pmc/tbc when available, else None
+    Returns: {"note": <str|None>, "earnings": [ {symbol,date,when}... ] }
+    when: lower-case bmo/amc/pmc/tbc when available, else None
     """
     if not FMP_KEY:
         return {"note": "No event data available", "earnings": []}
 
     today = datetime.now(timezone.utc).date()
-    end   = today + timedelta(days=7)
-    url   = "https://financialmodelingprep.com/api/v3/earning_calendar"
+    end = today + timedelta(days=7)
+    url = "https://financialmodelingprep.com/api/v3/earning_calendar"
     params = {"from": _iso(today), "to": _iso(end), "apikey": FMP_KEY}
 
     try:
@@ -32,7 +38,7 @@ async def fetch_earnings_ahead_fmp(watchlist: List[str]) -> Dict[str,Any]:
     out = []
     for e in data:
         sym = (e.get("symbol") or e.get("ticker") or "").upper()
-        if wl and sym not in wl: 
+        if wl and sym not in wl:
             continue
         when = (e.get("time") or "").lower() or None  # e.g., "bmo"/"amc"
         out.append({"symbol": sym, "date": e.get("date"), "when": when})
@@ -41,10 +47,13 @@ async def fetch_earnings_ahead_fmp(watchlist: List[str]) -> Dict[str,Any]:
         return {"note": "No event data available", "earnings": []}
 
     # de-dup & sort
-    seen=set(); clean=[]
+    seen = set()
+    clean = []
     for x in out:
-        k=(x["symbol"], x["date"])
-        if k in seen: continue
-        seen.add(k); clean.append(x)
-    clean.sort(key=lambda z:(z["date"] or "", z["symbol"] or ""))
+        k = (x["symbol"], x["date"])
+        if k in seen:
+            continue
+        seen.add(k)
+        clean.append(x)
+    clean.sort(key=lambda z: (z["date"] or "", z["symbol"] or ""))
     return {"note": None, "earnings": clean}

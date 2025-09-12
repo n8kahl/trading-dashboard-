@@ -1,11 +1,14 @@
 import asyncio
 import logging
-from typing import List
-from fastapi import WebSocket, WebSocketDisconnect
-from app.security import API_KEY
 import os
+from typing import List
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+from app.security import API_KEY
 
 WS_PING_SEC = int(os.getenv("WS_PING_SEC", "20"))
+
 
 class WSManager:
     """Minimal WebSocket connection manager."""
@@ -42,7 +45,9 @@ class WSManager:
         except asyncio.CancelledError:
             logging.info("ping_task cancelled")
 
+
 manager = WSManager()
+
 
 async def websocket_endpoint(ws: WebSocket) -> None:
     if API_KEY:
@@ -56,6 +61,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             await ws.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(ws)
+
 
 async def start_ws() -> None:
     asyncio.create_task(manager.ping_task())

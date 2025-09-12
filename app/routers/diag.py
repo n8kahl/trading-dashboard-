@@ -1,18 +1,22 @@
-from fastapi import APIRouter, Request
 import logging
+
+from fastapi import APIRouter, Request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/diag", tags=["diag"])
 
+
 @router.get("/health")
 async def health():
     return {"ok": True, "status": "healthy"}
+
 
 @router.get("/ready")
 async def ready():
     # If you want to check DB/polygon later, add here — keep it fast
     return {"ok": True, "ready": True}
+
 
 @router.get("/routes")
 async def list_routes(request: Request):
@@ -25,7 +29,8 @@ async def list_routes(request: Request):
             logger.exception("error collecting route info")
     return {"ok": True, "routes": items}
 
-@router.api_route("/echo", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
+
+@router.api_route("/echo", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 async def echo(request: Request):
     try:
         body = await request.json()
@@ -35,7 +40,6 @@ async def echo(request: Request):
         "method": request.method,
         "url_path": request.url.path,
         "query": dict(request.query_params),
-        "headers_subset": {k:v for k,v in request.headers.items()
-                           if k.lower() in ["content-type","user-agent"]},
-        "body": body
+        "headers_subset": {k: v for k, v in request.headers.items() if k.lower() in ["content-type", "user-agent"]},
+        "body": body,
     }

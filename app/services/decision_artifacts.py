@@ -1,8 +1,12 @@
 from __future__ import annotations
-from typing import Any, Dict
-from datetime import datetime, UTC
 
-def build_artifact(symbol: str, strategy: str, score: float, expected_r: float, features: Dict[str, Any]) -> Dict[str, Any]:
+from datetime import UTC, datetime
+from typing import Any, Dict
+
+
+def build_artifact(
+    symbol: str, strategy: str, score: float, expected_r: float, features: Dict[str, Any]
+) -> Dict[str, Any]:
     return {
         "ts": datetime.now(UTC).isoformat() + "Z",
         "symbol": symbol.upper(),

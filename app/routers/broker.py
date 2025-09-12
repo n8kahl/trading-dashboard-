@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Body
-from app.services import tradier
+
 from app.core.ws import manager
+from app.services import tradier
 
 router = APIRouter(prefix="/broker", tags=["broker"])
+
 
 @router.get("/positions")
 async def get_positions():
     return await tradier.get_positions()
 
+
 @router.get("/orders")
 async def get_orders():
     return await tradier.get_orders()
+
 
 @router.post("/orders/submit")
 async def submit_order(body: dict = Body(...)):
@@ -29,6 +33,7 @@ async def submit_order(body: dict = Body(...)):
         await manager.broadcast_json({"type": "orders", "items": ords.get("items", [])})
     return res
 
+
 @router.post("/orders/cancel")
 async def cancel_order(body: dict = Body(...)):
     res = await tradier.cancel_order(body.get("order_id"))
@@ -36,6 +41,7 @@ async def cancel_order(body: dict = Body(...)):
         ords = await tradier.get_orders()
         await manager.broadcast_json({"type": "orders", "items": ords.get("items", [])})
     return res
+
 
 @router.post("/webhook")
 async def broker_webhook(body: dict = Body(...)):

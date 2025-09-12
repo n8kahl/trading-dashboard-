@@ -1,10 +1,15 @@
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
-import httpx, os, datetime as dt
+
+import datetime as dt
+import os
+from typing import Any, Dict, Optional
+
+import httpx
 
 # --- Tradier daily history ---
 TRADIER_BASE = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
 TRADIER_ACCESS_TOKEN = os.getenv("TRADIER_ACCESS_TOKEN")
+
 
 async def tradier_daily_close(symbol: str) -> Optional[float]:
     if not TRADIER_ACCESS_TOKEN:
@@ -24,8 +29,10 @@ async def tradier_daily_close(symbol: str) -> Optional[float]:
             return None
         return float(bars[-1].get("close"))
 
+
 # --- Polygon daily fallback ---
 POLY_KEY = os.getenv("POLYGON_API_KEY")
+
 
 async def polygon_daily_close(symbol: str) -> Optional[float]:
     if not POLY_KEY:
@@ -42,6 +49,7 @@ async def polygon_daily_close(symbol: str) -> Optional[float]:
         if not res:
             return None
         return float(res[-1].get("c"))
+
 
 async def daily_price(symbol: str) -> Dict[str, Any]:
     p = await tradier_daily_close(symbol)

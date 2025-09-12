@@ -1,8 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from .common import ok
+
 from app.services.mcp_bridge import mcp_list_tools, mcp_run_tool
 
+from .common import ok
+
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+
 
 @router.get("/tools")
 async def tools():
@@ -11,6 +14,7 @@ async def tools():
         return ok(data)
     except Exception as e:
         raise HTTPException(502, f"MCP list tools failed: {e}")
+
 
 @router.post("/run")
 async def run(body: dict):

@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 from starlette.responses import JSONResponse
+
 from app.services import alerts_store
 
 router = APIRouter(prefix="/diag/db", tags=["diag-db"])
+
 
 @router.post("/init")
 def db_init():
@@ -12,6 +14,7 @@ def db_init():
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
+
 @router.get("/ping")
 def db_ping():
     try:
@@ -20,6 +23,7 @@ def db_ping():
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
+
 @router.get("/count")
 def db_count():
     try:
@@ -27,6 +31,7 @@ def db_count():
         return {"ok": True, "alerts": n}
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 
 @router.post("/insert-demo")
 def db_insert_demo():

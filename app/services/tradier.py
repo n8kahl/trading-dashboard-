@@ -1,5 +1,6 @@
 import datetime as dt
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List
+
 import httpx
 
 from app.core.settings import settings
@@ -12,6 +13,7 @@ def _headers() -> Dict[str, str]:
         "Accept": "application/json",
     }
 
+
 async def _get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     base = settings.tradier_base_url or "https://sandbox.tradier.com"
     async with httpx.AsyncClient(timeout=20) as client:
@@ -19,17 +21,22 @@ async def _get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         r.raise_for_status()
         return r.json()
 
+
 def _days_between(a: dt.date, b: dt.date) -> int:
     return (b - a).days
 
+
 async def expirations(symbol: str) -> List[str]:
-    js = await _get("/v1/markets/options/expirations", {"symbol": symbol, "includeAllRoots": "true", "strikes":"false"})
+    js = await _get(
+        "/v1/markets/options/expirations", {"symbol": symbol, "includeAllRoots": "true", "strikes": "false"}
+    )
     exps = js.get("expirations", {}).get("date")
     if isinstance(exps, list):
         return exps
     if isinstance(exps, str):
         return [exps]
     return []
+
 
 async def chains_for_exp(symbol: str, exp: str) -> List[Dict[str, Any]]:
     js = await _get("/v1/markets/options/chains", {"symbol": symbol, "expiration": exp})
@@ -39,6 +46,7 @@ async def chains_for_exp(symbol: str, exp: str) -> List[Dict[str, Any]]:
     if isinstance(rows, dict):
         return [rows]
     return []
+
 
 async def quotes_for_symbols(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     if not symbols:
@@ -53,6 +61,7 @@ async def quotes_for_symbols(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     elif isinstance(q, dict):
         out[q["symbol"]] = q
     return out
+
 
 async def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
     """
@@ -77,7 +86,7 @@ async def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
     CHUNK = 120  # Tradier handles large lists but we keep it safe
     async with httpx.AsyncClient(timeout=15) as client:
         for i in range(0, len(symbols), CHUNK):
-            chunk = [c for c in symbols[i:i + CHUNK] if c]
+            chunk = [c for c in symbols[i : i + CHUNK] if c]
             if not chunk:
                 continue
             try:
@@ -105,6 +114,7 @@ async def tradier_batch_option_quotes(symbols: list[str]) -> dict[str, dict]:
 
     return out
 
+
 async def get_positions() -> Dict[str, Any]:
     """Return open positions; fail-open to empty list."""
     try:
@@ -114,17 +124,20 @@ async def get_positions() -> Dict[str, Any]:
             items = [items]
         norm = []
         for p in items:
-            norm.append({
-                "symbol": p.get("symbol"),
-                "qty": float(p.get("quantity", 0)),
-                "avg_price": float(p.get("cost_basis", 0)),
-                "side": "long" if float(p.get("quantity", 0)) >= 0 else "short",
-                "market_price": float(p.get("last", 0)),
-                "unrealized_r": 0.0,
-            })
+            norm.append(
+                {
+                    "symbol": p.get("symbol"),
+                    "qty": float(p.get("quantity", 0)),
+                    "avg_price": float(p.get("cost_basis", 0)),
+                    "side": "long" if float(p.get("quantity", 0)) >= 0 else "short",
+                    "market_price": float(p.get("last", 0)),
+                    "unrealized_r": 0.0,
+                }
+            )
         return {"ok": True, "items": norm}
     except Exception as e:
         return {"ok": False, "error": str(e), "items": []}
+
 
 async def get_orders(status: str = "all") -> Dict[str, Any]:
     try:
@@ -134,20 +147,24 @@ async def get_orders(status: str = "all") -> Dict[str, Any]:
             items = [items]
         norm = []
         for o in items:
-            norm.append({
-                "id": o.get("id"),
-                "symbol": o.get("symbol"),
-                "side": o.get("side"),
-                "qty": o.get("quantity"),
-                "type": o.get("type"),
-                "status": o.get("status"),
-            })
+            norm.append(
+                {
+                    "id": o.get("id"),
+                    "symbol": o.get("symbol"),
+                    "side": o.get("side"),
+                    "qty": o.get("quantity"),
+                    "type": o.get("type"),
+                    "status": o.get("status"),
+                }
+            )
         return {"ok": True, "items": norm}
     except Exception as e:
         return {"ok": False, "error": str(e), "items": []}
 
-async def submit_order(symbol: str, side: str, qty: int, order_type: str,
-                       limit_price: float | None = None, stop_price: float | None = None) -> Dict[str, Any]:
+
+async def submit_order(
+    symbol: str, side: str, qty: int, order_type: str, limit_price: float | None = None, stop_price: float | None = None
+) -> Dict[str, Any]:
     body: Dict[str, Any] = {
         "symbol": symbol,
         "side": side,
@@ -175,6 +192,7 @@ async def submit_order(symbol: str, side: str, qty: int, order_type: str,
             return {"ok": True, "order": order}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
 
 async def cancel_order(order_id: str) -> Dict[str, Any]:
     try:

@@ -1,6 +1,8 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, Request
+
 from typing import Any, Dict
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 # Import your actions module (already has your registry/overlay)
@@ -8,18 +10,21 @@ from app.assistant import actions as actions_mod
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
+
 class ExecBody(BaseModel):
     op: str = Field(..., description="Operation id (e.g. options.pick)")
     args: Dict[str, Any] | None = None
-    model_config = {"extra":"allow"}  # accept top-level kwargs too
+    model_config = {"extra": "allow"}  # accept top-level kwargs too
+
 
 def _fold_args(payload: Dict[str, Any]) -> Dict[str, Any]:
     op = payload.get("op")
     args = payload.get("args") or {}
     for k, v in payload.items():
-        if k not in ("op","args") and k not in args:
+        if k not in ("op", "args") and k not in args:
             args[k] = v
     return {"op": op, "args": args}
+
 
 @router.get("/actions")
 def assistant_actions():
@@ -33,6 +38,7 @@ def assistant_actions():
         return {"ok": True, "actions": []}
     except Exception as e:
         raise HTTPException(status_code=500, detail={"ok": False, "error": "actions_list_error", "detail": str(e)})
+
 
 @router.post("/exec")
 async def assistant_exec(req: Request):

@@ -1,13 +1,19 @@
 from __future__ import annotations
-from typing import List, Dict, Any
+
+import os
 from datetime import datetime, timedelta, timezone
-import os, httpx
+from typing import Any, Dict, List
+
+import httpx
 
 TE_KEY = os.getenv("TRADING_ECONOMICS_KEY", "").strip()
 
-def _iso(d): return d.strftime("%Y-%m-%d")
 
-async def fetch_week_ahead_macro(country: str="united states", severity: List[str] | None=None) -> Dict[str,Any]:
+def _iso(d):
+    return d.strftime("%Y-%m-%d")
+
+
+async def fetch_week_ahead_macro(country: str = "united states", severity: List[str] | None = None) -> Dict[str, Any]:
     """
     Fetch next-7-day macro calendar from Trading Economics.
     - Free demo works with TE_KEY="guest:guest"
@@ -18,18 +24,13 @@ async def fetch_week_ahead_macro(country: str="united states", severity: List[st
         return {"note": "No event data available", "events": []}
 
     today = datetime.now(timezone.utc).date()
-    end   = today + timedelta(days=7)
+    end = today + timedelta(days=7)
 
     base = "https://api.tradingeconomics.com/calendar"
-    params = {
-        "country": country,
-        "from": _iso(today),
-        "to": _iso(end),
-        "importance": "1,2,3"
-    }
+    params = {"country": country, "from": _iso(today), "to": _iso(end), "importance": "1,2,3"}
 
     # Auth style: either basic auth "user:pass" or ?c=APIKEY
-    auth = tuple(TE_KEY.split(":",1)) if ":" in TE_KEY else None
+    auth = tuple(TE_KEY.split(":", 1)) if ":" in TE_KEY else None
     if auth is None:
         params["c"] = TE_KEY
 
@@ -48,7 +49,7 @@ async def fetch_week_ahead_macro(country: str="united states", severity: List[st
             imp_val = int(e.get("Importance", 0) or 0)
         except Exception:
             imp_val = 0
-        imp = {1:"low", 2:"medium", 3:"high"}.get(imp_val, "low")
+        imp = {1: "low", 2: "medium", 3: "high"}.get(imp_val, "low")
         if severity and imp not in severity:
             continue
         # Prefer UTC date/time if present
@@ -56,16 +57,18 @@ async def fetch_week_ahead_macro(country: str="united states", severity: List[st
         date = date_utc.split("T")[0] if "T" in date_utc else (e.get("Date") or None)
         time = date_utc.split("T")[1][:5] if "T" in date_utc else None
 
-        out.append({
-            "date": date,
-            "time": time,
-            "name": (e.get("Event") or "").strip(),
-            "country": e.get("Country",""),
-            "importance": imp,
-            "actual": e.get("Actual"),
-            "forecast": e.get("Forecast"),
-            "previous": e.get("Previous"),
-        })
+        out.append(
+            {
+                "date": date,
+                "time": time,
+                "name": (e.get("Event") or "").strip(),
+                "country": e.get("Country", ""),
+                "importance": imp,
+                "actual": e.get("Actual"),
+                "forecast": e.get("Forecast"),
+                "previous": e.get("Previous"),
+            }
+        )
 
     # Sort by date/time
     out.sort(key=lambda x: ((x.get("date") or ""), (x.get("time") or "")))

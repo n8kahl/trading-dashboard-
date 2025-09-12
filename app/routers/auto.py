@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Body
-from app.services import tradier
+
 from app.core.risk import risk_engine
 from app.core.ws import manager
+from app.services import tradier
 
 router = APIRouter(prefix="/auto", tags=["auto"])
+
 
 @router.post("/execute")
 async def auto_execute(body: dict = Body(...)):

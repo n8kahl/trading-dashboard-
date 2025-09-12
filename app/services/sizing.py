@@ -1,5 +1,6 @@
-from typing import Dict, Any, Optional
 import math
+from typing import Any, Dict, Optional
+
 
 def equity_size(buying_power: float, entry: float, stop: float, risk_pct: float = 0.005) -> Dict[str, Any]:
     """Risk % of buying power; shares from R = entry - stop."""
@@ -15,11 +16,17 @@ def equity_size(buying_power: float, entry: float, stop: float, risk_pct: float 
         "risk_cash": risk_cash,
         "per_share_r": r,
         "quantity": shares,
-        "notes": f"Risk {risk_pct*100:.2f}% of buying power; stop distance {r:.4f}",
+        "notes": f"Risk {risk_pct * 100:.2f}% of buying power; stop distance {r:.4f}",
     }
 
-def option_size(buying_power: float, premium_entry: float, premium_stop: Optional[float] = None,
-                risk_pct: float = 0.005, contract_multiplier: int = 100) -> Dict[str, Any]:
+
+def option_size(
+    buying_power: float,
+    premium_entry: float,
+    premium_stop: Optional[float] = None,
+    risk_pct: float = 0.005,
+    contract_multiplier: int = 100,
+) -> Dict[str, Any]:
     """
     If no premium_stop provided, assume 50% premium stop.
     Risk per contract = (entry - stop) * multiplier
@@ -38,5 +45,5 @@ def option_size(buying_power: float, premium_entry: float, premium_stop: Optiona
         "per_contract_r": r_per_contract,
         "quantity": contracts,
         "assumed_stop": stop,
-        "notes": f"Risk {risk_pct*100:.2f}% of buying power; {contract_multiplier}x multiplier.",
+        "notes": f"Risk {risk_pct * 100:.2f}% of buying power; {contract_multiplier}x multiplier.",
     }

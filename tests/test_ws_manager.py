@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -12,6 +12,7 @@ from app.core.ws import WSManager
 class FailingWebSocket:
     async def send_json(self, data):
         raise RuntimeError("fail")
+
 
 def test_broadcast_json_disconnects_and_logs(caplog):
     manager = WSManager()

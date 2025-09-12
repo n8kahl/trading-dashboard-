@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, ValidationError
-from datetime import date
 import inspect
+from datetime import date
+from typing import Any, Callable, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, ValidationError
+
+from app.services.options_common import Horizon, Side
+from app.services.options_live_tradier import (
+    fetch_chain as _fetch_chain,
+)
+from app.services.options_live_tradier import (
+    fetch_expirations as _fetch_expirations,
+)
 
 # Import your domain functions directly (no HTTP roundtrips)
 from app.services.options_live_tradier import (
     pick_live_contracts,
-    fetch_expirations as _fetch_expirations,
-    fetch_chain as _fetch_chain,
 )
-from app.services.options_common import Side, Horizon
 
 # ---------- Request models ----------
+
 
 class OptionsPickArgs(BaseModel):
     symbol: str = Field(..., description="Underlying ticker, e.g. SPY, AAPL")
@@ -21,14 +28,17 @@ class OptionsPickArgs(BaseModel):
     horizon: Horizon = "intra"
     n: int = Field(5, ge=1, le=10)
 
+
 class OptionsExpirationsArgs(BaseModel):
     symbol: str
+
 
 class OptionsChainArgs(BaseModel):
     symbol: str
     expiration: date
-    side: Optional[Literal["call","put"]] = None
+    side: Optional[Literal["call", "put"]] = None
     limit: int = Field(1000, ge=1, le=2000)
+
 
 # ---------- Exec handlers ----------
 async def _op_options_pick(args: OptionsPickArgs) -> Dict[str, Any]:
@@ -47,7 +57,7 @@ async def _op_options_chain(args: OptionsChainArgs) -> Dict[str, Any]:
     if args.side:
         items = [o for o in items if (o.get("option_type") or "").lower() == args.side]
     if len(items) > args.limit:
-        items = items[:args.limit]
+        items = items[: args.limit]
     norm = []
     for o in items:
         strike = o.get("strike")
@@ -55,15 +65,24 @@ async def _op_options_chain(args: OptionsChainArgs) -> Dict[str, Any]:
             strike = float(strike) if strike not in (None, "na") else None
         except Exception:
             strike = None
-        norm.append({
-            "symbol": o.get("symbol"),
-            "option_type": (o.get("option_type") or "").lower() or None,
-            "strike": strike,
-            "expiration": args.expiration.isoformat(),
-            "volume": o.get("volume"),
-            "open_interest": o.get("open_interest"),
-        })
-    return {"ok": True, "symbol": args.symbol.upper(), "expiration": args.expiration.isoformat(), "count": len(norm), "items": norm}
+        norm.append(
+            {
+                "symbol": o.get("symbol"),
+                "option_type": (o.get("option_type") or "").lower() or None,
+                "strike": strike,
+                "expiration": args.expiration.isoformat(),
+                "volume": o.get("volume"),
+                "open_interest": o.get("open_interest"),
+            }
+        )
+    return {
+        "ok": True,
+        "symbol": args.symbol.upper(),
+        "expiration": args.expiration.isoformat(),
+        "count": len(norm),
+        "items": norm,
+    }
+
 
 # ---------- Registry ----------
 class ActionSpec(BaseModel):
@@ -72,6 +91,7 @@ class ActionSpec(BaseModel):
     description: str
     args_model: type[BaseModel]
     handler: Optional[Callable[..., Any]] = None
+
 
 REGISTRY: Dict[str, ActionSpec] = {
     "options.pick": ActionSpec(
@@ -97,20 +117,24 @@ REGISTRY: Dict[str, ActionSpec] = {
     ),
 }
 
+
 # ---------- Public API for router ----------
 def list_actions() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for op, spec in REGISTRY.items():
         schema = spec.args_model.model_json_schema()
-        out.append({
-            "op": op,
-            "title": spec.title,
-            "description": spec.description,
-            "args_schema": schema,
-            "stable": True,  # marker for GPT prompts
-            "id": op,       # duplicate key for convenience
-        })
+        out.append(
+            {
+                "op": op,
+                "title": spec.title,
+                "description": spec.description,
+                "args_schema": schema,
+                "stable": True,  # marker for GPT prompts
+                "id": op,  # duplicate key for convenience
+            }
+        )
     return out
+
 
 async def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if op not in REGISTRY:
@@ -129,25 +153,31 @@ async def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if op == "options.chain":
         return await _op_options_chain(parsed)
     return {"ok": False, "error": "unimplemented", "detail": op}
+
+
 # === Assistant adapters for core endpoints (HTTP loopback) ===
-import os, json, urllib.request
-from typing import Optional, Dict, Any
+import json
+import os
+import urllib.request
+
 from pydantic import BaseModel, Field
 
 # NOTE: REGISTRY and ActionSpec are already defined earlier in this file by your options.* code.
+
 
 def _http_json(method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Minimal HTTP JSON helper that calls this same app via 127.0.0.1 and returns parsed JSON.
     Keeps behavior consistent with your existing REST responses.
     """
-    base = f"http://127.0.0.1:{os.environ.get('PORT','8000')}"
+    base = f"http://127.0.0.1:{os.environ.get('PORT', '8000')}"
     url = base + path
-    headers = {"content-type":"application/json"}
+    headers = {"content-type": "application/json"}
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method.upper(), headers=headers)
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
 
 # -------- plan.validate --------
 class PlanValidateArgs(BaseModel):
@@ -159,9 +189,11 @@ class PlanValidateArgs(BaseModel):
     tp2: Optional[float] = None
     time_stop_min: Optional[int] = 10
 
+
 def _plan_validate_handler(**kw) -> Dict[str, Any]:
     args = PlanValidateArgs(**kw).model_dump()
-    return _http_json("POST","/api/v1/plan/validate", args)
+    return _http_json("POST", "/api/v1/plan/validate", args)
+
 
 REGISTRY["plan.validate"] = ActionSpec(
     op="plan.validate",
@@ -171,6 +203,7 @@ REGISTRY["plan.validate"] = ActionSpec(
     handler=_plan_validate_handler,
 )
 
+
 # -------- sizing.suggest --------
 class SizingSuggestArgs(BaseModel):
     symbol: str
@@ -178,9 +211,11 @@ class SizingSuggestArgs(BaseModel):
     risk_R: float
     per_unit_risk: Optional[float] = None
 
+
 def _sizing_suggest_handler(**kw) -> Dict[str, Any]:
     args = SizingSuggestArgs(**kw).model_dump()
-    return _http_json("POST","/api/v1/sizing/suggest", args)
+    return _http_json("POST", "/api/v1/sizing/suggest", args)
+
 
 REGISTRY["sizing.suggest"] = ActionSpec(
     op="sizing.suggest",
@@ -190,13 +225,15 @@ REGISTRY["sizing.suggest"] = ActionSpec(
     handler=_sizing_suggest_handler,
 )
 
+
 # -------- screener.watchlist_get --------
 class ScreenerNoneArgs(BaseModel):
     pass
 
 
 def _screener_watchlist_get_handler(**kw) -> Dict[str, Any]:
-    return _http_json("GET","/api/v1/screener/watchlist/get")
+    return _http_json("GET", "/api/v1/screener/watchlist/get")
+
 
 REGISTRY["screener.watchlist_get"] = ActionSpec(
     op="screener.watchlist_get",
@@ -206,9 +243,11 @@ REGISTRY["screener.watchlist_get"] = ActionSpec(
     handler=_screener_watchlist_get_handler,
 )
 
+
 # -------- screener.watchlist_ranked --------
 def _screener_watchlist_ranked_handler(**kw) -> Dict[str, Any]:
-    return _http_json("GET","/api/v1/screener/watchlist/ranked")
+    return _http_json("GET", "/api/v1/screener/watchlist/ranked")
+
 
 REGISTRY["screener.watchlist_ranked"] = ActionSpec(
     op="screener.watchlist_ranked",
@@ -220,9 +259,6 @@ REGISTRY["screener.watchlist_ranked"] = ActionSpec(
 
 # --- Registry-driven dispatcher override (placed at end of this file) ---
 # This definition replaces any earlier execute_action imported by the router.
-
-from typing import Any, Dict
-from pydantic import ValidationError
 
 
 async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
@@ -262,17 +298,18 @@ async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {"ok": False, "error": "exec_error", "detail": str(e)}
 
+
 # ===== Assistant Adapter Layer (non-destructive overlay) =====
 # This block keeps the legacy behavior and augments it with additional ops
 # without relying on ActionSpec having a 'handler' field.
 
-import os, json, urllib.request, urllib.parse
-from typing import Any, Dict, Optional, List
-from pydantic import BaseModel, Field, ValidationError
+import urllib.parse
+
+from pydantic import BaseModel, Field
 
 # --- Capture legacy hooks if present (so we can delegate) ---
 try:
-    _LEGACY_LIST_ACTIONS = list_actions   # type: ignore[name-defined]
+    _LEGACY_LIST_ACTIONS = list_actions  # type: ignore[name-defined]
 except Exception:
     _LEGACY_LIST_ACTIONS = None
 
@@ -281,18 +318,22 @@ try:
 except Exception:
     _LEGACY_EXECUTE_ACTION = None
 
+
 # --- Small HTTP helper to call our own REST endpoints (loopback) ---
-def _http_json(method: str, path: str, body: Optional[Dict[str, Any]] = None, query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    base = f"http://127.0.0.1:{os.environ.get('PORT','8000')}"
+def _http_json(
+    method: str, path: str, body: Optional[Dict[str, Any]] = None, query: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    base = f"http://127.0.0.1:{os.environ.get('PORT', '8000')}"
     if query:
-        q = urllib.parse.urlencode({k:v for k,v in query.items() if v is not None})
+        q = urllib.parse.urlencode({k: v for k, v in query.items() if v is not None})
         path = f"{path}?{q}"
     url = base + path
-    headers = {"content-type":"application/json"}
+    headers = {"content-type": "application/json"}
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method.upper(), headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
 
 # --- Args Models for new ops ---
 class PlanValidateArgs(BaseModel):
@@ -304,11 +345,13 @@ class PlanValidateArgs(BaseModel):
     tp2: Optional[float] = None
     time_stop_min: Optional[int] = 10
 
+
 class SizingSuggestArgs(BaseModel):
     symbol: str
     side: str = Field(pattern="^(long|short)$")
     risk_R: float
     per_unit_risk: Optional[float] = None
+
 
 class ScreenerNoneArgs(BaseModel):
     pass
@@ -322,26 +365,32 @@ class PlaceOrderArgs(BaseModel):
     limit_price: Optional[float] = None
     preview: bool = True
 
+
 # --- Handlers using loopback to your current REST routes ---
 def _h_plan_validate(**kw) -> Dict[str, Any]:
     args = PlanValidateArgs(**kw).model_dump()
     return _http_json("POST", "/api/v1/plan/validate", body=args)
 
+
 def _h_sizing_suggest(**kw) -> Dict[str, Any]:
     args = SizingSuggestArgs(**kw).model_dump()
     return _http_json("POST", "/api/v1/sizing/suggest", body=args)
+
 
 def _h_screener_watchlist_get(**kw) -> Dict[str, Any]:
     _ = ScreenerNoneArgs(**(kw or {}))
     return _http_json("GET", "/api/v1/screener/watchlist/get")
 
+
 def _h_screener_watchlist_ranked(**kw) -> Dict[str, Any]:
     _ = ScreenerNoneArgs(**(kw or {}))
     return _http_json("GET", "/api/v1/screener/watchlist/ranked")
 
+
 def _h_broker_place_order(**kw) -> Dict[str, Any]:
     args = PlaceOrderArgs(**kw).model_dump()
     return _http_json("POST", "/api/v1/broker/tradier/order", body=args)
+
 
 # Registry for new ops (independent of ActionSpec)
 _ASSISTANT_EXTRA_OPS: Dict[str, Dict[str, Any]] = {
@@ -377,20 +426,24 @@ _ASSISTANT_EXTRA_OPS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+
 def _extra_actions_schema() -> List[Dict[str, Any]]:
     out = []
     for op, meta in _ASSISTANT_EXTRA_OPS.items():
         model = meta["args_model"]
         schema = model.model_json_schema()
-        out.append({
-            "op": op,
-            "title": meta["title"],
-            "description": meta.get("description",""),
-            "args_schema": schema,
-            "stable": True,
-            "id": op,
-        })
+        out.append(
+            {
+                "op": op,
+                "title": meta["title"],
+                "description": meta.get("description", ""),
+                "args_schema": schema,
+                "stable": True,
+                "id": op,
+            }
+        )
     return out
+
 
 # --- Merge discovery: legacy + extra ---
 def list_actions() -> Dict[str, Any]:
@@ -403,6 +456,7 @@ def list_actions() -> Dict[str, Any]:
     except Exception:
         legacy = []
     return {"ok": True, "actions": legacy + _extra_actions_schema()}
+
 
 # --- Unified executor: try extra first, then legacy ---
 async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:

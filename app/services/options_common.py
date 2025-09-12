@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Iterable, List, Optional, Tuple, Literal
+from typing import Iterable, List, Literal, Optional, Tuple
+
 from dateutil.tz import UTC
 
 # Shared literals used by options helpers
@@ -72,4 +73,3 @@ def format_quote(
         mark,
         spread_pct,
     )
-

@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import asyncio
 from typing import Set
 
+
 class CoachHub:
     """In-memory pub/sub for coach events (WS/SSE broadcast)."""
+
     def __init__(self) -> None:
         self._listeners: Set[asyncio.Queue[str]] = set()
 
@@ -22,5 +25,6 @@ class CoachHub:
 
     async def unsubscribe(self, q: asyncio.Queue[str]) -> None:
         self._listeners.discard(q)
+
 
 hub = CoachHub()

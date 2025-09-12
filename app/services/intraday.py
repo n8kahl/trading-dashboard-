@@ -1,11 +1,22 @@
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
-from app.services.tradier import get_timesales_1min
-from app.services.ta import (
-    ema, atr_1m, resample_ohlcv_5m, resample_ohlcv_15m,
-    avwaps_flexible
+
+from typing import Any, Dict, List, Optional
+
+from app.services.gates import (
+    entry_checks,
+    gate_equity_liquidity,
+    gate_regime,
+    gate_session,
 )
-from app.services.gates import gate_session, gate_equity_liquidity, gate_regime, entry_checks
+from app.services.ta import (
+    atr_1m,
+    avwaps_flexible,
+    ema,
+    resample_ohlcv_5m,
+    resample_ohlcv_15m,
+)
+from app.services.tradier import get_timesales_1min
+
 
 def _last_close(bars: List[Dict[str, Any]]) -> Optional[float]:
     for b in reversed(bars):
@@ -17,12 +28,14 @@ def _last_close(bars: List[Dict[str, Any]]) -> Optional[float]:
                 continue
     return None
 
+
 def _rvol_intraday(bars: List[Dict[str, Any]], look: int = 30) -> Optional[float]:
     if len(bars) < look * 2:
         return None
-    recent = sum(float(b.get("v",0) or 0) for b in bars[-look:])
-    prior  = sum(float(b.get("v",0) or 0) for b in bars[-2*look:-look])
+    recent = sum(float(b.get("v", 0) or 0) for b in bars[-look:])
+    prior = sum(float(b.get("v", 0) or 0) for b in bars[-2 * look : -look])
     return (recent / prior) if prior > 0 else None
+
 
 def _expected_r(score: float, a_plus: bool, rvol: Optional[float]) -> float:
     p = 0.35 + 0.30 * (max(0.0, min(100.0, score)) / 100.0)  # 0.35..0.65
@@ -35,6 +48,7 @@ def _expected_r(score: float, a_plus: bool, rvol: Optional[float]) -> float:
     r_loss = 1.0
     return p * r_win - (1 - p) * r_loss
 
+
 async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]:
     md = await get_timesales_1min(symbol, minutes_back=minutes_back)
     if not md.get("ok"):
@@ -44,12 +58,12 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
     if not bars:
         return {"ok": False, "symbol": symbol, "error": "no_intraday_bars", "provider": "tradier"}
 
-    closes = [float(b.get("c",0) or 0) for b in bars if b.get("c") is not None]
-    price  = _last_close(bars)  # robust (never null if any bar has 'c')
+    closes = [float(b.get("c", 0) or 0) for b in bars if b.get("c") is not None]
+    price = _last_close(bars)  # robust (never null if any bar has 'c')
 
     # Intraday features
-    ema9   = ema(closes, 9)   if len(closes) >= 9  else None
-    ema21  = ema(closes, 21)  if len(closes) >= 21 else None
+    ema9 = ema(closes, 9) if len(closes) >= 9 else None
+    ema21 = ema(closes, 21) if len(closes) >= 21 else None
     rvol_i = _rvol_intraday(bars, 30)
 
     # Anchored VWAPs (market day → open/prior-close; fallback → first bar)
@@ -59,13 +73,17 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
     spread_pct = None
     dollar_vol = None
     if price and any(b.get("v") for b in bars):
-        vv = sum(float(b.get("v",0) or 0) for b in bars[-60:]) if len(bars) >= 60 else sum(float(b.get("v",0) or 0) for b in bars)
+        vv = (
+            sum(float(b.get("v", 0) or 0) for b in bars[-60:])
+            if len(bars) >= 60
+            else sum(float(b.get("v", 0) or 0) for b in bars)
+        )
         dollar_vol = float(price) * float(vv)
 
     # Timeframe trend (5m/15m)
-    bars5  = resample_ohlcv_5m(bars)
+    bars5 = resample_ohlcv_5m(bars)
     bars15 = resample_ohlcv_15m(bars)
-    closes5  = [b["c"] for b in bars5] if bars5 else []
+    closes5 = [b["c"] for b in bars5] if bars5 else []
     closes15 = [b["c"] for b in bars15] if bars15 else []
 
     # Confluence score (simple)
@@ -73,46 +91,47 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
     rationale: List[str] = []
     if ema9 is not None and ema21 is not None and price is not None:
         if ema9 > ema21 and price > ema9:
-            score += 15; rationale.append("EMA stack bullish (1m)")
+            score += 15
+            rationale.append("EMA stack bullish (1m)")
         elif ema9 < ema21 and price < ema9:
-            score -= 15; rationale.append("EMA stack bearish (1m)")
+            score -= 15
+            rationale.append("EMA stack bearish (1m)")
     if avwap_open is not None and price is not None:
         dv = (price / avwap_open - 1.0) * 100.0
         if abs(dv) < 0.5:
-            score += 5; rationale.append("Near aVWAP(anchor)")
+            score += 5
+            rationale.append("Near aVWAP(anchor)")
         elif abs(dv) > 2.0:
-            score -= 5; rationale.append("Far from aVWAP(anchor)")
+            score -= 5
+            rationale.append("Far from aVWAP(anchor)")
     if rvol_i is not None:
         if rvol_i >= 1.3:
-            score += 6; rationale.append(f"RVOL {rvol_i:.2f} >= 1.3")
+            score += 6
+            rationale.append(f"RVOL {rvol_i:.2f} >= 1.3")
         elif rvol_i <= 0.8:
-            score -= 5; rationale.append(f"RVOL {rvol_i:.2f} <= 0.8")
+            score -= 5
+            rationale.append(f"RVOL {rvol_i:.2f} <= 0.8")
 
     # Gates
     session_ok, session_msg = gate_session()
-    liq_ok, liq_msg = gate_equity_liquidity({
-        "rvol_intraday": rvol_i,
-        "spread_pct": spread_pct,
-        "dollar_vol": dollar_vol
-    })
+    liq_ok, liq_msg = gate_equity_liquidity(
+        {"rvol_intraday": rvol_i, "spread_pct": spread_pct, "dollar_vol": dollar_vol}
+    )
     reg_ok, reg_msg, reg_meta = gate_regime(closes5, closes15)
 
     gates = {
         "session": {"ok": session_ok, "msg": session_msg},
         "liquidity": {"ok": liq_ok, "msg": liq_msg},
-        "regime": {"ok": reg_ok, "msg": reg_msg, **reg_meta}
+        "regime": {"ok": reg_ok, "msg": reg_msg, **reg_meta},
     }
 
     # Entry timing (use aVWAP open or prior-close as alternate anchor)
     entry_ok, entry_reasons, entry_ctx = entry_checks(
-        bars,
-        {"price": price, "rvol_intraday": rvol_i},
-        avwap_open=avwap_open,
-        avwap_alt=avwap_prevclose
+        bars, {"price": price, "rvol_intraday": rvol_i}, avwap_open=avwap_open, avwap_alt=avwap_prevclose
     )
     gates["entry"] = {"ok": entry_ok, "reasons": entry_reasons, **entry_ctx}
 
-    a_plus = (session_ok and liq_ok and reg_ok and entry_ok)
+    a_plus = session_ok and liq_ok and reg_ok and entry_ok
 
     # Risk model (stops/targets via ATR)
     atr = atr_1m(bars, period=14)
@@ -134,7 +153,7 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
                 "time_stop_min": 10,
                 "trail_after_R": 1.5,
                 "trail_method": "ema8_or_prev_bar",
-                "expected_R": expected_R
+                "expected_R": expected_R,
             }
 
     features = {
@@ -148,7 +167,7 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
         "spread_pct": spread_pct,
         "trend_5m": gates["regime"].get("trend_5m"),
         "trend_15m": gates["regime"].get("trend_15m"),
-        "atr_1m": atr
+        "atr_1m": atr,
     }
 
     score = max(0.0, min(100.0, score))
@@ -163,5 +182,5 @@ async def score_intraday(symbol: str, minutes_back: int = 450) -> Dict[str, Any]
         "plan_preview": plan,
         "rationale": rationale,
         "provider": "tradier",
-        "data_status": "OK"
+        "data_status": "OK",
     }

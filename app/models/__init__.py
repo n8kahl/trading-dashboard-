@@ -1,8 +1,9 @@
 """Centralized exports for SQLAlchemy models and shared Base."""
 
 from .base import Base
-from .paper import PaperTrade, PaperPosition, PaperFill
-from .misc import Alert, AlertTrigger, WatchlistItem, JournalEntry
+from .misc import Alert, AlertTrigger, JournalEntry, WatchlistItem
+from .paper import PaperFill, PaperPosition, PaperTrade
+
 __all__ = [
     "Base",
     "PaperTrade",
@@ -13,4 +14,3 @@ __all__ = [
     "WatchlistItem",
     "JournalEntry",
 ]
-

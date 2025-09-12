@@ -1,8 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from .common import ok
+
 from app.services.scoring_engine import score_confluence
 
+from .common import ok
+
 router = APIRouter(prefix="/", tags=["analyze"])
+
 
 @router.post("/analyze")
 async def analyze(body: dict):

@@ -1,8 +1,9 @@
-from pathlib import Path
-import sys
 import logging
-import pytest
+import sys
 import types
+from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -11,11 +12,14 @@ sys.path.append(str(ROOT))
 def test_server_exits_when_api_key_missing(monkeypatch, caplog):
     monkeypatch.delenv("POLYGON_API_KEY", raising=False)
     dummy_fastmcp = types.ModuleType("fastmcp")
+
     class DummyMCP:
         def __init__(self, *args, **kwargs):
             pass
+
         def run(self, *args, **kwargs):
             pass
+
     dummy_fastmcp.FastMCP = DummyMCP
     dummy_fastmcp.tool = lambda f: f
     sys.modules["fastmcp"] = dummy_fastmcp

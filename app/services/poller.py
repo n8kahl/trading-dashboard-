@@ -5,7 +5,6 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from app.models import Alert
 from app.services.utils import RateLimiter, run_periodic, session_scope
 
 POLL_SEC = int(os.getenv("ALERT_POLL_SEC", "30"))
@@ -96,6 +95,7 @@ async def _poll_once() -> None:
             raw_condition = r[3]
             try:
                 import json
+
                 cond = json.loads(raw_condition) if isinstance(raw_condition, str) else (raw_condition or {})
             except Exception:
                 cond = {"raw": raw_condition}

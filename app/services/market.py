@@ -1,10 +1,14 @@
 from __future__ import annotations
-import os, datetime as dt
-from typing import Dict, List, Optional
+
+import datetime as dt
+import os
+from typing import Dict, Optional
+
 import httpx
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 POLYGON_BASE = "https://api.polygon.io"
+
 
 class PolygonClient:
     def __init__(self, api_key: Optional[str] = None, base: str = POLYGON_BASE):
@@ -21,7 +25,7 @@ class PolygonClient:
             async with httpx.AsyncClient(timeout=20.0) as s:
                 r = await s.get(self.base + path, params=p)
                 # Return JSON even on non-200 to avoid HTML errors upstream
-                content_type = r.headers.get("content-type","")
+                content_type = r.headers.get("content-type", "")
                 data = None
                 try:
                     data = r.json()
@@ -34,7 +38,9 @@ class PolygonClient:
             return {"error": {"request_error": str(e)}}
 
     async def get_minute_bars(self, symbol: str, start: dt.datetime, end: dt.datetime, limit: int = 5000) -> Dict:
-        path = f"/v2/aggs/ticker/{symbol.upper()}/range/1/minute/{start.strftime('%Y-%m-%d')}/{end.strftime('%Y-%m-%d')}"
+        path = (
+            f"/v2/aggs/ticker/{symbol.upper()}/range/1/minute/{start.strftime('%Y-%m-%d')}/{end.strftime('%Y-%m-%d')}"
+        )
         params = {"adjusted": "true", "sort": "asc", "limit": str(limit)}
         return await self._get(path, params)
 

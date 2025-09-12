@@ -1,6 +1,7 @@
 import os
-from pydantic import BaseModel
 from typing import Optional
+
+from pydantic import BaseModel
 
 
 class Settings(BaseModel):
@@ -33,6 +34,7 @@ class Settings(BaseModel):
 
 
 settings = Settings()
+
 
 class HealthStatus(BaseModel):
     ok: bool

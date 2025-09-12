@@ -1,7 +1,9 @@
-from typing import Dict, Any, List, Optional
-from .ta import ema, atr
+from typing import Any, Dict, List
 
-def build_plan_from_eval(bars: List[dict], best: Dict[str, Any], *, power_hour: bool=False) -> Dict[str, Any]:
+from .ta import atr, ema
+
+
+def build_plan_from_eval(bars: List[dict], best: Dict[str, Any], *, power_hour: bool = False) -> Dict[str, Any]:
     """
     Generate a trade plan from evaluation result and bars.
 
@@ -17,8 +19,8 @@ def build_plan_from_eval(bars: List[dict], best: Dict[str, Any], *, power_hour: 
         return {"entry": None, "stop": None, "tp1": None, "tp2": None, "side": None, "notes": []}
 
     closes = [b["c"] for b in bars]
-    highs  = [b["h"] for b in bars]
-    lows   = [b["l"] for b in bars]
+    highs = [b["h"] for b in bars]
+    lows = [b["l"] for b in bars]
 
     e20_series = ema(closes, 20)
     e20_now = next((e for e in reversed(e20_series) if e is not None), None)
@@ -31,7 +33,7 @@ def build_plan_from_eval(bars: List[dict], best: Dict[str, Any], *, power_hour: 
 
     notes: List[str] = []
     if e20_now is not None and atr_now is not None:
-        notes.append(f"EMA20={round(e20_now,2)}, ATR14={round(atr_now,2)}")
+        notes.append(f"EMA20={round(e20_now, 2)}, ATR14={round(atr_now, 2)}")
 
     # Fallbacks to keep robust
     if e20_now is None:
@@ -62,6 +64,6 @@ def build_plan_from_eval(bars: List[dict], best: Dict[str, Any], *, power_hour: 
         "tp1": round(tp1, 2) if tp1 is not None else None,
         "tp2": round(tp2, 2) if tp2 is not None else None,
         "notes": notes,
-        "power_hour": power_hour
+        "power_hour": power_hour,
     }
     return plan

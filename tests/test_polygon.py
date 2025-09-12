@@ -1,5 +1,7 @@
+import importlib
+import sys
 from pathlib import Path
-import sys, importlib
+
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +11,7 @@ sys.path.append(str(ROOT))
 def test_last_quote(monkeypatch):
     monkeypatch.setenv("POLYGON_API_KEY", "test")
     import app.services.polygon as polygon
+
     importlib.reload(polygon)
 
     def handler(request: httpx.Request) -> httpx.Response:

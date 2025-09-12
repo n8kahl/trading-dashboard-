@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.services.db import get_db
-from app.models.misc import JournalEntry
+from app.models import JournalEntry
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 

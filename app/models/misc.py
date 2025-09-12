@@ -3,9 +3,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import String, Integer, Float, DateTime, JSON, Boolean, Text
-
-# We reuse Base from app.models.paper to keep a single metadata registry.
-from app.models.paper import Base
+from .base import Base
 
 class Alert(Base):
     __tablename__ = "alerts"

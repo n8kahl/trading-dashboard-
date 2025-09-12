@@ -5,7 +5,7 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.services.db import ensure_db
-from app.models.misc import Alert, AlertTrigger
+from app.models import Alert, AlertTrigger
 
 POLL_SEC = int(os.getenv("ALERT_POLL_SEC", "30"))
 POLY_KEY = os.getenv("POLYGON_API_KEY")

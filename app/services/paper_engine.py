@@ -5,7 +5,7 @@ from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
-from app.models.paper import PaperTrade, PaperPosition, PaperFill
+from app.models import PaperTrade, PaperPosition, PaperFill
 
 # Env-configurable rules
 TIME_STOP_MIN = int(os.getenv("PAPER_TIME_STOP_MIN", "25"))

@@ -30,6 +30,8 @@ interface TradingSignal {
   timestamp: Date
 }
 
+const DEFAULT_SYMBOLS = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA", "MSFT"]
+
 export function AITradingAssistant() {
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
@@ -55,8 +57,7 @@ export function AITradingAssistant() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const symbols = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA", "MSFT"]
-  const { marketData, connectionStatus, error } = useLiveMarketData(symbols)
+  const { marketData, connectionStatus, error } = useLiveMarketData(DEFAULT_SYMBOLS)
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -164,16 +165,20 @@ export function AITradingAssistant() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {connectionStatus !== "connected" && (
+          {connectionStatus === "error" || connectionStatus === "disconnected" ? (
             <div className="flex items-center gap-1 text-xs text-yellow-500 mb-2">
               <AlertTriangle className="h-3 w-3" />
               <span>{error || "Connection lost. Attempting to reconnect..."}</span>
             </div>
-          )}
+          ) : connectionStatus === "connecting" ? (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+              <span>Connecting to market data...</span>
+            </div>
+          ) : null}
           <div className="space-y-2">
-            {signals.slice(0, 3).map((signal, index) => (
+            {signals.slice(0, 3).map((signal) => (
               <div
-                key={index}
+                key={signal.timestamp.getTime()}
                 className="flex items-center justify-between p-2 rounded bg-muted/20 border border-border"
               >
                 <div className="flex items-center gap-2">
@@ -211,11 +216,23 @@ export function AITradingAssistant() {
             <Bot className="h-4 w-4" />
             AI Assistant
             <Badge variant="outline" className="text-xs ml-auto">
-              {connectionStatus === "connected" ? "Online" : "Offline"}
+              {connectionStatus === "connected"
+                ? "Online"
+                : connectionStatus === "connecting"
+                  ? "Connecting"
+                  : connectionStatus === "error"
+                    ? "Error"
+                    : "Offline"}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
+          {connectionStatus === "error" || connectionStatus === "disconnected" ? (
+            <div className="flex items-center gap-1 text-xs text-yellow-500 mb-2 p-4">
+              <AlertTriangle className="h-3 w-3" />
+              <span>{error || "Connection lost. Responses may be delayed."}</span>
+            </div>
+          ) : null}
           <ScrollArea className="h-64 p-4" ref={scrollRef}>
             <div className="space-y-3">
               {messages.map((message) => (
@@ -283,7 +300,11 @@ export function AITradingAssistant() {
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 className="text-xs"
               />
-              <Button size="sm" onClick={sendMessage} disabled={!input.trim() || isTyping}>
+              <Button
+                size="sm"
+                onClick={sendMessage}
+                disabled={!input.trim() || isTyping || connectionStatus !== "connected"}
+              >
                 <Send className="h-3 w-3" />
               </Button>
             </div>

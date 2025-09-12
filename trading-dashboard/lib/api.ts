@@ -1,26 +1,25 @@
 import type { z } from "zod"
 
-function headers() {
-  const h: Record<string, string> = { "content-type": "application/json" }
-  return h
+export async function apiFetch<T>(path: string, schema: z.ZodType<T>, options: RequestInit = {}): Promise<T> {
+  const url = `/api/proxy?path=${encodeURIComponent(path)}`
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  }
+  const res = await fetch(url, { ...options, headers, cache: "no-store" })
+
+  if (!res.ok) {
+    throw new Error(`API request failed: ${res.status} ${res.statusText}`)
+  }
+
+  const json = await res.json()
+  return schema.parse(json)
 }
 
-export async function apiGet<T = unknown>(path: string, schema?: z.ZodTypeAny): Promise<T> {
-  const url = `/api/proxy?path=${encodeURIComponent(path)}`
-  const res = await fetch(url, { headers: headers(), cache: "no-store" })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  const data = await res.json()
-  return schema ? schema.parse(data) : (data as T)
+export async function apiGet<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+  return apiFetch(path, schema, { method: "GET" })
 }
 
-export async function apiPost<T = unknown>(path: string, body: unknown, schema?: z.ZodTypeAny): Promise<T> {
-  const url = `/api/proxy?path=${encodeURIComponent(path)}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  const data = await res.json()
-  return schema ? schema.parse(data) : (data as T)
+export async function apiPost<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+  return apiFetch(path, schema, { method: "POST", body: JSON.stringify(body) })
 }

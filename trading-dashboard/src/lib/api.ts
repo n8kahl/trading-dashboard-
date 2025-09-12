@@ -1,35 +1,26 @@
-export async function apiGet<T>(path: string, schema?: { parse: (x: any) => T }): Promise<T> {
-  const url = `/api/proxy?path=${encodeURIComponent(path)}`
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-  })
+const BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+async function handle(res: Response) {
+  if (!res.ok) {
+    const text = await res.text().catch(()=>"");
+    try { throw new Error(text || `HTTP ${res.status}`); }
+    catch { throw new Error(`HTTP ${res.status}`); }
   }
-
-  const j = await response.json()
-  return schema ? schema.parse(j) : j
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json();
+  return res.text();
 }
 
-export async function apiPost<T>(path: string, body: any, schema?: { parse: (x: any) => T }): Promise<T> {
-  const url = `/api/proxy?path=${encodeURIComponent(path)}`
-  const response = await fetch(url, {
+export async function apiGet(path: string) {
+  const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+  return handle(res);
+}
+
+export async function apiPost(path: string, body: any) {
+  const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
-  }
-
-  const j = await response.json()
-  return schema ? schema.parse(j) : j
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {})
+  });
+  return handle(res);
 }

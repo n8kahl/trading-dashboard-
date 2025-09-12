@@ -2,10 +2,7 @@ from __future__ import annotations
 import os, asyncio, datetime as dt
 from typing import Dict, Any, List, Optional
 import httpx
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from app.services.db import ensure_db
-from app.models import Alert, AlertTrigger
+from app.services import alerts_store
 
 POLL_SEC = int(os.getenv("ALERT_POLL_SEC", "30"))
 POLY_KEY = os.getenv("POLYGON_API_KEY")
@@ -43,25 +40,23 @@ def _condition_met(kind: str, value: float, price: float, cfg: Dict[str,Any]) ->
     return False
 
 async def poll_once():
-    engine, SessionLocal = ensure_db()
-    db: Session = SessionLocal()
-    try:
-        rows: List[Alert] = db.execute(select(Alert).where(Alert.is_active == True)).scalars().all()
-        symbols = sorted({r.symbol for r in rows})
-        prices: Dict[str, Optional[float]] = {}
-        # fetch prices sequentially to respect free-tier
-        for s in symbols:
-            prices[s] = await _last_minute_close(s)
-        for a in rows:
-            p = prices.get(a.symbol)
-            if p is None: continue
-            cond = a.condition or {}
-            k = cond.get("type"); v = cond.get("value")
-            if k and isinstance(v,(int,float)) and _condition_met(k, float(v), float(p), cond):
-                db.add(AlertTrigger(alert_id=a.id, symbol=a.symbol, payload={"price": p, "condition": a.condition}))
-        db.commit()
-    finally:
-        db.close()
+    rows = alerts_store.list_active()
+    if not rows:
+        return
+    symbols = sorted({r["symbol"] for r in rows})
+    prices: Dict[str, Optional[float]] = {}
+    # fetch prices sequentially to respect free-tier
+    for s in symbols:
+        prices[s] = await _last_minute_close(s)
+    for a in rows:
+        p = prices.get(a["symbol"])
+        if p is None:
+            continue
+        cond = a.get("condition") or {}
+        k = cond.get("type"); v = cond.get("value")
+        if k and isinstance(v,(int,float)) and _condition_met(k, float(v), float(p), cond):
+            alerts_store.mark_triggered(a["id"])
+            alerts_store.add_trigger(a["id"], a["symbol"], {"price": p, "condition": a.get("condition")})
 
 async def run_loop():
     while True:

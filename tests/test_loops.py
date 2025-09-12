@@ -1,7 +1,6 @@
-from pathlib import Path
 import sys, asyncio, importlib
-from contextlib import contextmanager
-from types import SimpleNamespace
+from pathlib import Path
+from typing import Any, Dict
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
@@ -9,6 +8,8 @@ sys.path.append(str(ROOT))
 
 def test_alerts_poller(monkeypatch):
     monkeypatch.setenv("POLYGON_API_KEY", "x")
+    import types
+    sys.modules["psycopg2"] = types.SimpleNamespace(connect=lambda *a, **k: None)
     import app.services.poller as poller
     importlib.reload(poller)
 
@@ -18,33 +19,24 @@ def test_alerts_poller(monkeypatch):
 
     monkeypatch.setattr(poller, "_latest_price", fake_price)
 
-    class DummyResult:
-        def __init__(self, rows):
-            self.rows = rows
-        def fetchall(self):
-            return self.rows
+    calls: Dict[str, Any] = {}
 
-    class DummyDB:
-        def __init__(self):
-            self.queries = []
-        def execute(self, query, params=None):
-            self.queries.append((query, params))
-            if query.startswith("SELECT id, symbol"):
-                return DummyResult([(1, "AAPL", "day", '{"type":"price_above","value":100}', True)])
-            return DummyResult([])
+    def fake_list_active():
+        return [{"id": 1, "symbol": "AAPL", "timeframe": "day", "condition": {"type": "price_above", "value": 100}}]
 
-    holder = {}
-    @contextmanager
-    def dummy_db_session():
-        db = DummyDB()
-        holder["db"] = db
-        yield db
+    def fake_mark_triggered(alert_id: int):
+        calls["mark"] = alert_id
 
-    monkeypatch.setattr(poller, "db_session", dummy_db_session)
+    def fake_add_trigger(alert_id: int, symbol: str, payload: dict):
+        calls.setdefault("triggers", []).append((alert_id, symbol, payload))
+
+    monkeypatch.setattr(poller.alerts_store, "list_active", fake_list_active)
+    monkeypatch.setattr(poller.alerts_store, "mark_triggered", fake_mark_triggered)
+    monkeypatch.setattr(poller.alerts_store, "add_trigger", fake_add_trigger)
 
     asyncio.run(poller.alerts_poller(loop_forever=False))
-    q = "".join(holder["db"].queries[-1][0:1])
-    assert "UPDATE alerts SET triggered_at" in q
+    assert calls["mark"] == 1
+    assert calls["triggers"][0][1] == "AAPL"
 
 
 def test_monitor_loop(monkeypatch):

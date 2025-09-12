@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.services.market import coerce_bars, fetch_polygon_daily
@@ -121,7 +121,6 @@ async def premarket_analysis(body: Dict[str, Any]):
     )
 
 
-from fastapi import Query
 
 
 @router.get("/analysis")

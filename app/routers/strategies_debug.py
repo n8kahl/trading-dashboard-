@@ -1,3 +1,7 @@
+import datetime as dt
+import os
+
+import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -13,10 +17,7 @@ async def config():
     return JSONResponse({"status": "ok", "data": {"has_polygon_api_key": has_polygon}})
 
 
-import datetime as dt
-import os
 
-import httpx
 
 
 @router.get("/polygon-daily-probe")

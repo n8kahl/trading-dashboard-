@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.config.policy import POLICY
 from app.services.coach import explain
 from app.services.intraday import score_intraday
 
@@ -69,7 +70,6 @@ async def explain_view(req: ExplainRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"explain_error: {e}")
 
 
-from app.config.policy import POLICY
 
 
 @router.get("/policy")

@@ -13,11 +13,23 @@ _headers_tradier = {"Authorization": f"Bearer {TRADIER_TOKEN}", "Accept": "appli
 
 _tradier_client: Optional[TradierClient] = None
 
-def _tradier() -> TradierClient:
+
+def _tradier(client: Optional[TradierClient] = None) -> TradierClient:
+    """Return a Tradier client, optionally using the provided one."""
     global _tradier_client
+    if client is not None:
+        return client
     if _tradier_client is None:
         _tradier_client = TradierClient()
     return _tradier_client
+
+
+async def close_tradier_client() -> None:
+    """Close the module-level Tradier client, if any."""
+    global _tradier_client
+    if _tradier_client is not None:
+        await _tradier_client.close()
+        _tradier_client = None
 
 async def _aget_json(url: str, headers: Dict[str,str] = None, params: Dict[str,Any] = None, method: str="GET", data: Any=None) -> Tuple[int, Any]:
     async with httpx.AsyncClient(timeout=_http_timeout) as client:
@@ -31,10 +43,10 @@ async def _aget_json(url: str, headers: Dict[str,str] = None, params: Dict[str,A
         return r.status_code, {"raw": r.text}
 
 # ----- Quotes (prefer Tradier; fallback Polygon daily close) -----
-async def get_last_price(symbol: str) -> Optional[float]:
+async def get_last_price(symbol: str, client: Optional[TradierClient] = None) -> Optional[float]:
     # Tradier real/15-min delayed last
     if TRADIER_TOKEN:
-        quotes = await _tradier().get_quotes([symbol])
+        quotes = await _tradier(client).get_quotes([symbol])
         q = quotes.get(symbol) or {}
         last = q.get("last") or q.get("close") or q.get("bid") or q.get("ask")
         if isinstance(last, (int, float)):

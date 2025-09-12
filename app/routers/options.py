@@ -1,7 +1,7 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import Literal, List, Optional, Dict, Any
+from typing import Literal, List, Optional, Dict, Any, AsyncIterator
 import os, math, asyncio, datetime as dt
 from app.integrations.tradier import TradierClient
 import httpx
@@ -45,13 +45,14 @@ TRADIER_TOKEN = os.getenv("TRADIER_TOKEN", os.getenv("TRADIER_ACCESS_TOKEN", "")
 POLYGON_KEY = os.getenv("POLYGON_API_KEY", "").strip()
 ENV_NOTE = "delayed via Tradier Sandbox; Polygon fallback only if Tradier empty/unavailable"
 
-_tradier_client: Optional[TradierClient] = None
 
-def _tradier() -> TradierClient:
-    global _tradier_client
-    if _tradier_client is None:
-        _tradier_client = TradierClient()
-    return _tradier_client
+async def get_tradier_client() -> AsyncIterator[TradierClient]:
+    """FastAPI dependency providing a Tradier client per request."""
+    client = TradierClient()
+    try:
+        yield client
+    finally:
+        await client.close()
 
 # ---------- Helpers ----------
 def _today_utc() -> dt.date:
@@ -99,8 +100,7 @@ def _wanted_type(side: str) -> str:
 
 
 # ---------- Tradier (primary) ----------
-async def _tradier_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    client = _tradier()
+async def _tradier_json(client: TradierClient, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     s = await client._session()
     r = await s.get(path, params=params, timeout=20.0)
     if r.status_code >= 400:
@@ -110,23 +110,23 @@ async def _tradier_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"tradier_json_error: {e}")
 
-async def _tradier_quote(symbol: str) -> Optional[float]:
-    data = await _tradier().get_quotes([symbol])
+async def _tradier_quote(client: TradierClient, symbol: str) -> Optional[float]:
+    data = await client.get_quotes([symbol])
     q = data.get(symbol) or {}
     return _safe_float(q.get("last")) or _safe_float(q.get("close"))
 
-async def _tradier_expirations(symbol: str) -> List[str]:
-    data = await _tradier_json("/markets/options/expirations", {"symbol": symbol})
+async def _tradier_expirations(client: TradierClient, symbol: str) -> List[str]:
+    data = await _tradier_json(client, "/markets/options/expirations", {"symbol": symbol})
     exps = (data or {}).get("expirations", {}).get("date")
     if not exps:
         return []
     return [str(x) for x in (exps if isinstance(exps, list) else [exps])]
 
-async def _tradier_chain(symbol: str, expiration: str, opt_type: Optional[str]) -> List[Dict[str, Any]]:
+async def _tradier_chain(client: TradierClient, symbol: str, expiration: str, opt_type: Optional[str]) -> List[Dict[str, Any]]:
     params = {"symbol": symbol, "expiration": expiration, "greeks": "true"}
     if opt_type in ("call", "put"):
         params["type"] = opt_type
-    data = await _tradier_json("/markets/options/chains", params)
+    data = await _tradier_json(client, "/markets/options/chains", params)
     items = (data or {}).get("options", {}).get("option")
     if not items:
         return []
@@ -159,12 +159,12 @@ async def _polygon_chain(symbol: str, max_count: int = 500) -> List[Dict[str, An
     return out
 
 # ---------- Picker ----------
-async def _pick_from_tradier(symbol: str, side: str, horizon: str, n: int) -> OptionsPickResponse:
+async def _pick_from_tradier(client: TradierClient, symbol: str, side: str, horizon: str, n: int) -> OptionsPickResponse:
     opt_type = "call" if side.endswith("call") else "put"
     dte_cap = _horizon_dte_cap(horizon, None)
-    tc = _tradier()
-    last = await _tradier_quote(symbol)
-    expirations = await _tradier_expirations(symbol)
+    tc = client
+    last = await _tradier_quote(client, symbol)
+    expirations = await _tradier_expirations(client, symbol)
 
     candidates = []
     for exp in expirations:
@@ -178,7 +178,7 @@ async def _pick_from_tradier(symbol: str, side: str, horizon: str, n: int) -> Op
     # Build fast list first from chains
     prelim: List[OptionContract] = []
     for exp, _d in candidates[:5]:
-        chain = await _tradier_chain(symbol, exp, opt_type)
+        chain = await _tradier_chain(client, symbol, exp, opt_type)
         for row in chain:
             strike = _safe_float(row.get("strike"))
             bid = _safe_float(row.get("bid"))
@@ -293,7 +293,10 @@ async def _fallback_polygon(symbol: str, side: str, horizon: str, n: int) -> Opt
 
 # ---------- Route ----------
 @router.post("/pick", response_model=OptionsPickResponse)
-async def options_pick(req: OptionsPickRequest):
+async def options_pick(
+    req: OptionsPickRequest,
+    client: TradierClient = Depends(get_tradier_client),
+):
     """
     Primary: Tradier Sandbox delayed chain + quotes enrichment.
     Fallback: Polygon reference when Tradier is unavailable or empty (unless prefer='tradier').
@@ -306,7 +309,7 @@ async def options_pick(req: OptionsPickRequest):
 
     # Try Tradier first (or force it)
     try:
-        res = await _pick_from_tradier(req.symbol, req.side, req.horizon, req.n)
+        res = await _pick_from_tradier(client, req.symbol, req.side, req.horizon, req.n)
         if res and res.ok and res.picks:
             return res
         if force_tradier:

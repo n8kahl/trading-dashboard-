@@ -1,6 +1,7 @@
 from app.routers import plan, sizing
 from app.routers import diag_config
 from fastapi import FastAPI
+from app.services.providers import close_tradier_client
 
 app = FastAPI(title="Trading Assistant", version="0.0.1")
 
@@ -60,3 +61,8 @@ _mount("app.routers.assistant_simple")
 
 from app.routers import screener as screener_router
 app.include_router(screener_router.router, prefix="/api/v1")
+
+
+@app.on_event("shutdown")
+async def _shutdown_tradier():
+    await close_tradier_client()

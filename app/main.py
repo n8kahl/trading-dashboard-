@@ -1,5 +1,6 @@
-from app.routers import plan, sizing
-from app.routers import diag_config
+import importlib
+import logging
+
 from fastapi import FastAPI
 from app.services.providers import close_tradier_client
 from app.core.ws import websocket_endpoint, start_ws
@@ -23,10 +24,6 @@ app.add_middleware(
 )
 # --- end CORS ---
 
-app.include_router(sizing.router, prefix="/api/v1")
-app.include_router(plan.router, prefix="/api/v1")
-app.include_router(diag_config.router)
-
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -39,14 +36,22 @@ def diag_health():
 def diag_ready():
     return {"ok": True, "ready": True}
 
+_mounted_modules = set()
+logger = logging.getLogger(__name__)
+
+
 def _mount(module: str, attr: str = "router", prefix: str = "/api/v1"):
+    if module in _mounted_modules:
+        logger.warning("[boot] %s already mounted, skipping", module)
+        return
     try:
-        mod = __import__(module, fromlist=[attr])
+        mod = importlib.import_module(module)
         r = getattr(mod, attr)
         app.include_router(r, prefix=prefix)
-        print(f"[boot] mounted {module}")
+        _mounted_modules.add(module)
+        logger.info("[boot] mounted %s", module)
     except Exception as e:
-        print(f"[boot] skipping {module}: {e}")
+        logger.warning("[boot] skipping %s: %s", module, e)
 
 # core routers (mount once)
 _mount("app.routers.diag")           # if present in your repo
@@ -63,9 +68,6 @@ _mount("app.routers.stream")         # stream snapshot
 
 # assistant router (simple)
 _mount("app.routers.assistant_simple")
-
-from app.routers import screener as screener_router
-app.include_router(screener_router.router, prefix="/api/v1")
 
 # websocket endpoint
 app.add_api_websocket_route("/ws", websocket_endpoint)

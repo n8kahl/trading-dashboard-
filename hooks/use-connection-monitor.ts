@@ -17,13 +17,16 @@ export function useConnectionMonitor() {
     retryCount: 0,
   })
 
-  const healthCheckInterval = useRef<NodeJS.Timeout | null>(null)
-  const retryTimeout = useRef<NodeJS.Timeout | null>(null)
+  const healthCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+  const retryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const checkApiHealth = useCallback(async () => {
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      const timeoutId: ReturnType<typeof setTimeout> = setTimeout(
+        () => controller.abort(),
+        5000,
+      ) // 5 second timeout
 
       const response = await fetch("/api/proxy/health", {
         method: "GET",

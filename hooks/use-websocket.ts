@@ -26,7 +26,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
 
   const ws = useRef<WebSocket | null>(null)
   const reconnectAttempts = useRef(0)
-  const reconnectTimer = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { onMessage, onError, onConnect, onDisconnect, reconnectInterval = 3000, maxReconnectAttempts = 5 } = options
 

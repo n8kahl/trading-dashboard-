@@ -2,7 +2,7 @@ fastapi==0.112.2
 fastmcp==2.12.2
 uvicorn[standard]==0.30.6
 httpx==0.28.1
-python-dotenv==1.0.1
+python-dotenv>=1.1.0,<2
 pydantic>=2.11.7,<3
 pandas==2.2.2
 SQLAlchemy==2.0.34

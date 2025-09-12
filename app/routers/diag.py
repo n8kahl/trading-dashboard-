@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Request
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/diag", tags=["diag"])
 
@@ -19,7 +22,7 @@ async def list_routes(request: Request):
         try:
             items.append({"path": rt.path, "methods": sorted(list(rt.methods or []))})
         except Exception:
-            pass
+            logger.exception("error collecting route info")
     return {"ok": True, "routes": items}
 
 @router.api_route("/echo", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])

@@ -2,6 +2,8 @@ from app.routers import plan, sizing
 from app.routers import diag_config
 from fastapi import FastAPI
 from app.services.providers import close_tradier_client
+from app.core.ws import websocket_endpoint, start_ws
+from app.core.risk import start_risk_engine
 
 app = FastAPI(title="Trading Assistant", version="0.0.1")
 
@@ -55,12 +57,23 @@ _mount("app.routers.alerts")         # if present
 _mount("app.routers.plan")           # if present
 _mount("app.routers.sizing")         # if present
 _mount("app.routers.admin")          # if present
+_mount("app.routers.broker")         # new broker routes
+_mount("app.routers.auto")           # auto-trade
+_mount("app.routers.stream")         # stream snapshot
 
 # assistant router (simple)
 _mount("app.routers.assistant_simple")
 
 from app.routers import screener as screener_router
 app.include_router(screener_router.router, prefix="/api/v1")
+
+# websocket endpoint
+app.add_api_websocket_route("/ws", websocket_endpoint)
+
+@app.on_event("startup")
+async def _startup_tasks():
+    await start_ws()
+    await start_risk_engine()
 
 
 @app.on_event("shutdown")

@@ -28,3 +28,23 @@ Continue building your app on:
 2. Deploy your chats from the v0 interface
 3. Changes are automatically pushed to this repository
 4. Vercel deploys the latest version from this repository
+
+## Environment
+
+The backend reads the following environment variables:
+
+- `TRADIER_BASE` – Tradier API base URL (defaults to sandbox)
+- `TRADIER_TOKEN` – Tradier access token
+- `POLYGON_API_KEY` – optional key for Polygon quotes
+- `DATA_MODE`
+- `WS_PING_SEC`
+- `RISK_MAX_DAILY_R`
+- `RISK_MAX_CONCURRENT`
+
+`/api/v1/diag/config` reports whether each value is loaded.
+
+## WebSocket
+
+Run the FastAPI app with `uvicorn app.main:app`. The dashboard connects to
+`ws://<host>/ws` for live updates. Heartbeats are sent every `WS_PING_SEC`
+seconds, and the connection manager drops unresponsive sockets.

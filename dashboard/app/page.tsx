@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/src/lib/api";
+import { connectWS } from "@/src/lib/ws";
+import { useWS } from "@/src/lib/store";
+import { toast } from "sonner";
 
 type WatchlistResp = { ok: boolean; symbols: string[] };
 type Pick = {
@@ -25,6 +28,7 @@ function smallNum(n?: number, d: number = 3) {
 export default function Page() {
   const [side, setSide] = useState<"call"|"put">("call");
   const [ticker, setTicker] = useState("SPY");
+  const connected = useWS();
 
   // per-contract inputs: { [contractSymbol]: {entry, stop} }
   const [inputs, setInputs] = useState<Record<string, {entry:string; stop:string}>>({});
@@ -65,9 +69,17 @@ export default function Page() {
 
   const getInput = (k: string) => inputs[k] ?? { entry: "", stop: "" };
 
+  useEffect(() => {
+    connectWS(window.location.origin);
+  }, []);
+
   return (
     <main className="container">
       <h1 style={{marginBottom:12}}>Trading Assistant Dashboard</h1>
+
+      <div className="small" style={{marginBottom:8}}>
+        WS: {connected ? "Connected" : "Disconnected"}
+      </div>
 
       <section className="card" style={{marginBottom:12}}>
         <div style={{fontWeight:600, marginBottom:6}}>Watchlist</div>
@@ -135,19 +147,19 @@ export default function Page() {
 
                   <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
                     <button onClick={()=>{
-                      if(!entry || !stop){ window.alert("Enter entry & stop first"); return; }
+                      if(!entry || !stop){ toast("Enter entry & stop first"); return; }
                       plan.mutate({ symbol: ticker, side: side==="call" ? "long" : "short", entry: Number(entry), stop: Number(stop) });
                     }}>Build Plan</button>
 
                     <button className="secondary" onClick={()=>{
-                      if(!entry || !stop){ window.alert("Enter entry & stop first"); return; }
+                      if(!entry || !stop){ toast("Enter entry & stop first"); return; }
                       const per_unit_risk = Math.abs(Number(entry) - Number(stop));
                       sizing.mutate({ symbol: ticker, side: side==="call" ? "long" : "short", risk_R: 1, per_unit_risk });
                     }}>Size It</button>
 
                     <button className="secondary" onClick={()=>{
                       // simple price alert at the entry level
-                      if(!entry){ window.alert("Enter an entry to set an alert level"); return; }
+                      if(!entry){ toast("Enter an entry to set an alert level"); return; }
                       alertMut.mutate({ symbol: ticker, level: Number(entry), note: `Alert near plan entry for ${ticker}` });
                     }}>Set Alert</button>
                   </div>

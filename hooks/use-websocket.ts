@@ -8,9 +8,15 @@ interface WebSocketMessage {
   timestamp: number
 }
 
+interface WebSocketError {
+  message: string
+  error?: unknown
+  event: Event | ErrorEvent
+}
+
 interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void
-  onError?: (error: Event) => void
+  onError?: (error: WebSocketError) => void
   onConnect?: () => void
   onDisconnect?: () => void
   reconnectInterval?: number
@@ -74,10 +80,22 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         }
       }
 
-      ws.current.onerror = (error) => {
-        console.error("[v0] WebSocket error:", error)
+      ws.current.onerror = (event: Event | ErrorEvent) => {
+        const errorInfo: WebSocketError =
+          event instanceof ErrorEvent
+            ? {
+                message: event.message,
+                error: event.error,
+                event,
+              }
+            : {
+                message: "WebSocket encountered an error",
+                event,
+              }
+
+        console.error("[v0] WebSocket error:", errorInfo.message, errorInfo.error)
         setConnectionStatus("error")
-        onError?.(error)
+        onError?.(errorInfo)
       }
     } catch (error) {
       console.error("[v0] Failed to create WebSocket connection:", error)

@@ -52,8 +52,8 @@ def _atr_percent(bars: List[Dict[str, Any]], length: int = 14) -> Optional[float
     trs = []
     prev_close = bars[-length - 1]["c"]
     for b in bars[-length:]:
-        h, l, c_prev = b["h"], b["l"], prev_close
-        tr = max(h - l, abs(h - c_prev), abs(l - c_prev))
+        h, low, c_prev = b["h"], b["l"], prev_close
+        tr = max(h - low, abs(h - c_prev), abs(low - c_prev))
         trs.append(tr)
         prev_close = b["c"]
     atr = sum(trs) / length

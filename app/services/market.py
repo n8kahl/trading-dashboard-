@@ -25,7 +25,6 @@ class PolygonClient:
             async with httpx.AsyncClient(timeout=20.0) as s:
                 r = await s.get(self.base + path, params=p)
                 # Return JSON even on non-200 to avoid HTML errors upstream
-                content_type = r.headers.get("content-type", "")
                 data = None
                 try:
                     data = r.json()

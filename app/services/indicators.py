@@ -24,9 +24,9 @@ def atr1m(bars: List[Dict], period: int = 14) -> float:
     prev_c = float(bars[0]["c"])
     for b in bars[1:]:
         h = float(b["h"])
-        l = float(b["l"])
+        low = float(b["l"])
         c = float(b["c"])
-        tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
+        tr = max(h - low, abs(h - prev_c), abs(low - prev_c))
         trs.append(tr)
         prev_c = c
     if len(trs) < period:

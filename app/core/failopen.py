@@ -1,20 +1,39 @@
 import asyncio
 import functools
 import os
-from typing import Callable, Awaitable, Any, Dict
+from typing import Callable, Any, Dict
 
 def _is_enabled() -> bool:
     # Enable fail-open by default; set TA_FAIL_OPEN=0 to disable
     return os.getenv("TA_FAIL_OPEN", "1") not in ("0", "false", "False")
 
-def _maybe_await(x):
-    return x if asyncio.iscoroutine(x) else asyncio.Future()
-
 def fail_open(fallback_factory: Callable[[], Dict[str, Any]]):
-    """
-    Wrap a FastAPI endpoint so that on ANY exception, we return:
-      - 200 OK
-      - JSON object from fallback_factory(), plus {"ok": false, "note": "..."}
+    """Decorate FastAPI endpoints to gracefully handle unexpected errors.
+
+    Any exception raised by the wrapped endpoint results in:
+
+    * HTTP 200 response
+    * JSON from ``fallback_factory`` plus ``{"ok": False, "note": "..."}``
+
+    Examples
+    --------
+    Synchronous endpoint::
+
+        @fail_open(lambda: {"data": "stale"})
+        def get_data():
+            raise RuntimeError("boom")
+
+        get_data()
+
+    Asynchronous endpoint::
+
+        @fail_open(lambda: {"data": "stale"})
+        async def get_data_async():
+            raise RuntimeError("boom")
+
+        asyncio.run(get_data_async())
+
+    Set ``TA_FAIL_OPEN=0`` to disable this behavior.
     """
     def decorator(fn):
         if asyncio.iscoroutinefunction(fn):

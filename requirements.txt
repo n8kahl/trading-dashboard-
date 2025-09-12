@@ -3,7 +3,7 @@ fastmcp==2.12.2
 uvicorn[standard]==0.30.6
 httpx==0.28.1
 python-dotenv==1.0.1
-pydantic==2.9.2
+pydantic>=2.11.7,<3
 pandas==2.2.2
 SQLAlchemy==2.0.34
 psycopg[binary,pool]==3.2.9

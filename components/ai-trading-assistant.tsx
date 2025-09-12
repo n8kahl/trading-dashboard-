@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Bot, Send, TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useLiveMarketData } from "@/hooks/use-live-market-data"
 
 interface AssistantMessage {
   id: string
@@ -54,6 +55,9 @@ export function AITradingAssistant() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  const symbols = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA", "MSFT"]
+  const { marketData, connectionStatus, error } = useLiveMarketData(symbols)
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollRef.current) {
@@ -61,56 +65,44 @@ export function AITradingAssistant() {
     }
   }, [messages])
 
-  // Simulate live trading signals
+  // Update signals from live market data stream
   useEffect(() => {
-    const generateSignal = () => {
-      const symbols = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA", "MSFT"]
-      const actions = ["buy", "sell", "hold"] as const
-      const reasons = [
-        "Technical breakout detected",
-        "Volume surge with price confirmation",
-        "RSI oversold condition",
-        "Support level holding strong",
-        "Resistance level broken",
-        "Moving average crossover",
-        "Unusual options activity",
-        "Earnings momentum play",
-      ]
+    const latest = Object.values(marketData).sort((a, b) => b.timestamp - a.timestamp)[0]
+    if (!latest) return
 
-      const symbol = symbols[Math.floor(Math.random() * symbols.length)]
-      const action = actions[Math.floor(Math.random() * actions.length)]
-      const confidence = Math.floor(Math.random() * 40) + 60 // 60-100%
-      const reason = reasons[Math.floor(Math.random() * reasons.length)]
+    const action = latest.change > 0 ? "buy" : latest.change < 0 ? "sell" : "hold"
+    const reason =
+      action === "buy"
+        ? "Price momentum increasing"
+        : action === "sell"
+          ? "Price momentum decreasing"
+          : "No significant change"
+    const confidence = Math.min(Math.round(Math.abs(latest.changePercent)), 100)
 
-      const signal: TradingSignal = {
-        symbol,
-        action,
-        price: 100 + Math.random() * 400,
-        confidence,
-        reason,
-        timestamp: new Date(),
-      }
-
-      setSignals((prev) => [signal, ...prev.slice(0, 4)]) // Keep last 5 signals
-
-      // Add assistant message for significant signals
-      if (confidence > 80) {
-        const message: AssistantMessage = {
-          id: Date.now().toString(),
-          type: "assistant",
-          content: `🎯 High confidence ${action.toUpperCase()} signal for ${symbol} at $${signal.price.toFixed(2)}. ${reason}. Confidence: ${confidence}%`,
-          timestamp: new Date(),
-          actionType: action,
-          symbol,
-          confidence,
-        }
-        setMessages((prev) => [...prev, message])
-      }
+    const signal: TradingSignal = {
+      symbol: latest.symbol,
+      action,
+      price: latest.price,
+      confidence,
+      reason,
+      timestamp: new Date(),
     }
 
-    const interval = setInterval(generateSignal, 8000 + Math.random() * 12000) // 8-20 seconds
-    return () => clearInterval(interval)
-  }, [])
+    setSignals((prev) => [signal, ...prev.slice(0, 4)])
+
+    if (confidence > 80) {
+      const message: AssistantMessage = {
+        id: Date.now().toString(),
+        type: "assistant",
+        content: `🎯 High confidence ${action.toUpperCase()} signal for ${latest.symbol} at $${latest.price.toFixed(2)}. ${reason}. Confidence: ${confidence}%`,
+        timestamp: new Date(),
+        actionType: action,
+        symbol: latest.symbol,
+        confidence,
+      }
+      setMessages((prev) => [...prev, message])
+    }
+  }, [marketData])
 
   const sendMessage = async () => {
     if (!input.trim()) return
@@ -172,6 +164,12 @@ export function AITradingAssistant() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {connectionStatus !== "connected" && (
+            <div className="flex items-center gap-1 text-xs text-yellow-500 mb-2">
+              <AlertTriangle className="h-3 w-3" />
+              <span>{error || "Connection lost. Attempting to reconnect..."}</span>
+            </div>
+          )}
           <div className="space-y-2">
             {signals.slice(0, 3).map((signal, index) => (
               <div
@@ -213,7 +211,7 @@ export function AITradingAssistant() {
             <Bot className="h-4 w-4" />
             AI Assistant
             <Badge variant="outline" className="text-xs ml-auto">
-              Online
+              {connectionStatus === "connected" ? "Online" : "Offline"}
             </Badge>
           </CardTitle>
         </CardHeader>

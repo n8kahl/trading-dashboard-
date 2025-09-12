@@ -18,22 +18,22 @@ def _next_weekday(d: date) -> date:
         d += timedelta(days=1)
     return d
 
-def fetch_spot(ticker: str) -> float:
-    # Prefer last trade; if missing, fall back to previous close (still real, not fabricated)
-    j = get_json(f"/v2/last/trade/{ticker.upper()}")
+async def fetch_spot(ticker: str) -> float:
+    """Fetch the latest trade price for a ticker."""
+    j = await get_json(f"/v2/last/trade/{ticker.upper()}")
     last = j.get("last") or {}
     px = last.get("price")
     if px is not None:
         return float(px)
     # fallback: previous close
-    p = get_json(f"/v2/aggs/ticker/{ticker.upper()}/prev")
+    p = await get_json(f"/v2/aggs/ticker/{ticker.upper()}/prev")
     results = p.get("results") or []
     if not results:
         raise PolygonError("No spot/prev data available for " + ticker)
     return float(results[0]["c"])
 
-def _contracts_exist(ticker: str, exp: date, cp: Literal["call","put"]) -> bool:
-    res = get_json("/v3/reference/options/contracts", {
+async def _contracts_exist(ticker: str, exp: date, cp: Literal["call","put"]) -> bool:
+    res = await get_json("/v3/reference/options/contracts", {
         "underlying_ticker": ticker.upper(),
         "expiration_date": exp.isoformat(),
         "contract_type": cp,
@@ -43,7 +43,7 @@ def _contracts_exist(ticker: str, exp: date, cp: Literal["call","put"]) -> bool:
     })
     return (res.get("resultsCount") or 0) > 0
 
-def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) -> date:
+async def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) -> date:
     # Target window by horizon
     start = _next_weekday(_today_utc())
     if horizon in ("intra","day"):
@@ -58,7 +58,7 @@ def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) 
         d = start + timedelta(days=i)
         if _is_weekend(d):
             continue
-        if _contracts_exist(ticker, d, cp):
+        if await _contracts_exist(ticker, d, cp):
             if first_available is None:
                 first_available = d
             if min_dte <= i <= max_dte:
@@ -67,8 +67,8 @@ def choose_expiration(ticker: str, horizon: Horizon, cp: Literal["call","put"]) 
         return first_available
     raise PolygonError("No expirations found for " + ticker)
 
-def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call","put"], limit: int = 1000) -> List[Dict[str, Any]]:
-    res = get_json("/v3/reference/options/contracts", {
+async def fetch_contracts_for_exp(ticker: str, exp: date, cp: Literal["call","put"], limit: int = 1000) -> List[Dict[str, Any]]:
+    res = await get_json("/v3/reference/options/contracts", {
         "underlying_ticker": ticker.upper(),
         "expiration_date": exp.isoformat(),
         "contract_type": cp,
@@ -84,11 +84,11 @@ def _nearest_indices(strikes: List[float], spot: float, take: int) -> List[int]:
     ranked = sorted(indexed, key=lambda it: (abs(it[1]-spot), it[1]))
     return [i for i,_ in ranked[:take]]
 
-def _recent_quote(opt_symbol: str) -> Tuple[float|None, float|None, float|None]:
+async def _recent_quote(opt_symbol: str) -> Tuple[float | None, float | None, float | None]:
     # returns (bid, ask, mark) using most recent quote
-    q = get_json(f"/v3/quotes/options/{opt_symbol}", {
-        "limit": 1, "sort": "timestamp", "order": "desc"
-    })
+    q = await get_json(
+        f"/v3/quotes/options/{opt_symbol}", {"limit": 1, "sort": "timestamp", "order": "desc"}
+    )
     results = q.get("results") or []
     if not results:
         return None, None, None
@@ -107,11 +107,11 @@ def _recent_quote(opt_symbol: str) -> Tuple[float|None, float|None, float|None]:
             float(ask) if ask is not None else None,
             float(mark) if mark is not None else (float(last) if last is not None else None))
 
-def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
+async def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -> Dict[str, Any]:
     cp = "call" if "call" in side else "put"
-    spot = fetch_spot(ticker)
-    exp = choose_expiration(ticker, horizon, cp)
-    contracts = fetch_contracts_for_exp(ticker, exp, cp)
+    spot = await fetch_spot(ticker)
+    exp = await choose_expiration(ticker, horizon, cp)
+    contracts = await fetch_contracts_for_exp(ticker, exp, cp)
     if not contracts:
         raise PolygonError("No option contracts returned")
 
@@ -124,7 +124,7 @@ def pick_live_contracts(ticker: str, side: Side, horizon: Horizon, n: int = 5) -
     for i in idxs:
         c = contracts[i]
         sym = c.get("ticker") or c.get("contract") or c.get("symbol")
-        bid, ask, mark = _recent_quote(sym)
+        bid, ask, mark = await _recent_quote(sym)
         ask_f = float(ask) if ask is not None else None
         bid_f = float(bid) if bid is not None else None
         mark_f = float(mark) if mark is not None else None

@@ -5,6 +5,7 @@ from typing import Iterable, List, Optional, Tuple, Literal
 from dateutil.tz import UTC
 
 # Shared literals used by options helpers
+Side = Literal["long_call", "long_put", "short_call", "short_put"]
 Horizon = Literal["intra", "day", "week"]
 
 

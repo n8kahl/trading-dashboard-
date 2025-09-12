@@ -1,15 +1,14 @@
 from __future__ import annotations
 from datetime import date
-from typing import Dict, Any, List, Literal
+from typing import Dict, Any, List
 from app.services.tradier_client import get, TradierError
 from .options_common import (
     choose_expiration_from_list,
     nearest_strike_indices,
     format_quote,
+    Side,
+    Horizon,
 )
-
-Side = Literal["long_call","long_put","short_call","short_put"]
-Horizon = Literal["intra","day","week"]
 
 def _as_list(x):
     if x is None:

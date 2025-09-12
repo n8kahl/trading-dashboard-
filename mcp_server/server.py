@@ -1,4 +1,4 @@
-import os, asyncio, httpx
+import os, asyncio, httpx, atexit
 from fastmcp import FastMCP, tool
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY","").strip()
@@ -7,12 +7,21 @@ BASE = "https://api.polygon.io"
 if not POLYGON_API_KEY:
     raise RuntimeError("POLYGON_API_KEY not set")
 
+_client = httpx.AsyncClient(timeout=20)
+
 async def _get(url, **params):
     params = {"apiKey": POLYGON_API_KEY, **params}
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.get(url, params=params)
-        r.raise_for_status()
-        return r.json()
+    r = await _client.get(url, params=params)
+    r.raise_for_status()
+    return r.json()
+
+async def _close_client() -> None:
+    await _client.aclose()
+
+def _shutdown() -> None:
+    asyncio.run(_close_client())
+
+atexit.register(_shutdown)
 
 mcp = FastMCP("polygon-http-mcp")
 

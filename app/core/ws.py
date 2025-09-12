@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import List
 from fastapi import WebSocket, WebSocketDisconnect
 from app.security import API_KEY
@@ -24,17 +25,22 @@ class WSManager:
         for ws in list(self.connections):
             try:
                 await ws.send_json(data)
-            except Exception:
+            except Exception as exc:
+                logging.exception("broadcast_json failed", exc_info=exc)
                 self.disconnect(ws)
 
     async def ping_task(self) -> None:
-        while True:
-            await asyncio.sleep(WS_PING_SEC)
-            for ws in list(self.connections):
-                try:
-                    await ws.send_json({"type": "ping"})
-                except Exception:
-                    self.disconnect(ws)
+        try:
+            while True:
+                await asyncio.sleep(WS_PING_SEC)
+                for ws in list(self.connections):
+                    try:
+                        await ws.send_json({"type": "ping"})
+                    except Exception as exc:
+                        logging.exception("ping_task send failed", exc_info=exc)
+                        self.disconnect(ws)
+        except asyncio.CancelledError:
+            logging.info("ping_task cancelled")
 
 manager = WSManager()
 

@@ -42,7 +42,7 @@ def anchored_vwap(bars: List[Dict[str, Any]], start_idx: int) -> Optional[float]
         low = float(b.get("l", 0) or 0)
         c = float(b.get("c", 0) or 0)
         v = float(b.get("v", 0) or 0)
-        tp = (h + l + c) / 3.0
+        tp = (h + low + c) / 3.0
         num += tp * v
         den += v
     return (num / den) if den > 0 else None

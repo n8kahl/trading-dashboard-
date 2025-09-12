@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import json
+import os
+import urllib.parse
+import urllib.request
 from datetime import date
 from typing import Any, Callable, Dict, List, Literal, Optional
 
@@ -156,11 +160,7 @@ async def execute_action(op: str, args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # === Assistant adapters for core endpoints (HTTP loopback) ===
-import json
-import os
-import urllib.request
 
-from pydantic import BaseModel, Field
 
 # NOTE: REGISTRY and ActionSpec are already defined earlier in this file by your options.* code.
 
@@ -303,9 +303,7 @@ async def execute_action(op: str, raw_args: Dict[str, Any]) -> Dict[str, Any]:
 # This block keeps the legacy behavior and augments it with additional ops
 # without relying on ActionSpec having a 'handler' field.
 
-import urllib.parse
 
-from pydantic import BaseModel, Field
 
 # --- Capture legacy hooks if present (so we can delegate) ---
 try:

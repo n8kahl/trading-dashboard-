@@ -47,7 +47,7 @@ def _atr(bars: List[Dict[str, Any]], period: int = 14) -> List[float]:
             trs.append(h - low)
             continue
         prev_c = bars[i - 1]["c"]
-        tr = max(h - low, abs(h - prev_c), abs(l - prev_c))
+        tr = max(h - low, abs(h - prev_c), abs(low - prev_c))
         trs.append(tr)
     # simple EMA for ATR
     return _ema(trs, period)

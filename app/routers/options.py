@@ -70,7 +70,7 @@ async def get_tradier_client() -> AsyncIterator[TradierClient]:
 
 # ---------- Helpers ----------
 def _today_utc() -> dt.date:
-    return dt.datetime.now(UTC).date()
+    return dt.datetime.now(dt.UTC).date()
 
 
 def _dte(expiration: str) -> Optional[int]:

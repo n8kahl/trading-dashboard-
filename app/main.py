@@ -146,3 +146,7 @@ try:
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 except Exception as e:
     print("[ui] static mount skipped:", e)
+
+from app.routers import assistant_bridge
+
+app.include_router(assistant_bridge.router)

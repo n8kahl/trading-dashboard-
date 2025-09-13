@@ -121,3 +121,14 @@ from app.routers import diag, sizing
 
 from app.routers import alerts
 app.include_router(alerts.router)
+
+import asyncio, os
+from app.alerts_worker import run_poller
+
+@app.on_event("startup")
+async def _start_worker():
+    if os.getenv("RUN_POLLER", "1") == "1":
+        asyncio.create_task(run_poller())
+
+from app.routers import broker
+app.include_router(broker.router)

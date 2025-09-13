@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/src/lib/api";
 import { connectWS } from "@/src/lib/ws";
-import { useWS } from "@/src/lib/store";
+import { useWS, usePrices } from "@/src/lib/store";
 import { toast } from "sonner";
+import NewsPanel from "@/components/NewsPanel";
+import AlertsPanel from "@/components/AlertsPanel";
 
 type WatchlistResp = { ok: boolean; symbols: string[] };
 type Pick = {
@@ -29,6 +31,7 @@ export default function Page() {
   const [side, setSide] = useState<"call"|"put">("call");
   const [ticker, setTicker] = useState("SPY");
   const connected = useWS();
+  const prices = usePrices();
 
   // per-contract inputs: { [contractSymbol]: {entry, stop} }
   const [inputs, setInputs] = useState<Record<string, {entry:string; stop:string}>>({});
@@ -60,8 +63,8 @@ export default function Page() {
   });
 
   const alertMut = useMutation({
-    mutationFn: (args: {symbol:string; level:number; note?:string}) =>
-      apiPost("/api/v1/alerts/set", args)
+    mutationFn: (args: {symbol:string; level:number}) =>
+      apiPost("/api/v1/alerts/set", { symbol: args.symbol, timeframe: "minute", condition: { type: "price_above", value: args.level } })
   });
 
   const setInput = (k: string, field: "entry"|"stop", v: string) =>
@@ -77,8 +80,9 @@ export default function Page() {
     <main className="container">
       <h1 style={{marginBottom:12}}>Trading Assistant Dashboard</h1>
 
-      <div className="small" style={{marginBottom:8}}>
-        WS: {connected ? "Connected" : "Disconnected"}
+      <div className="small" style={{marginBottom:8, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap"}}>
+        <span>WS: {connected ? "Connected" : "Disconnected"}</span>
+        <span>Price {ticker}: {prices?.[ticker] !== undefined ? Number(prices[ticker]).toFixed(2) : "—"}</span>
       </div>
 
       <section className="card" style={{marginBottom:12}}>
@@ -160,7 +164,7 @@ export default function Page() {
                     <button className="secondary" onClick={()=>{
                       // simple price alert at the entry level
                       if(!entry){ toast("Enter an entry to set an alert level"); return; }
-                      alertMut.mutate({ symbol: ticker, level: Number(entry), note: `Alert near plan entry for ${ticker}` });
+                      alertMut.mutate({ symbol: ticker, level: Number(entry) });
                     }}>Set Alert</button>
                   </div>
                 </div>
@@ -198,6 +202,16 @@ export default function Page() {
           </div>
         </div>
       </section>
+
+      <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:12, marginTop:12}}>
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          {/* Reserved for future chart/workspace content */}
+        </div>
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          <NewsPanel symbols={(wl.data?.symbols ?? [ticker]).slice(0,7)} />
+          <AlertsPanel />
+        </div>
+      </div>
     </main>
   );
 }

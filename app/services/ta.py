@@ -85,6 +85,71 @@ def ema_stack_state(closes: List[float]) -> Optional[str]:
     return "mixed"
 
 
+# ---------- Order-flow & helpers ----------
+def obv_slope_10(bars: List[Dict[str, Any]], window: int = 10) -> Optional[float]:
+    """Simple OBV slope over the last `window` bars.
+
+    OBV is cumulative volume adjusted by close-change sign. We return the
+    difference between the last and the value `window` bars ago. If not
+    enough bars, return None.
+    """
+    n = len(bars)
+    if n < window + 1:
+        return None
+    obv = []
+    cur = 0.0
+    prev_c = float(bars[0].get("c", 0) or 0)
+    for b in bars[1:]:
+        c = float(b.get("c", 0) or 0)
+        v = float(b.get("v", 0) or 0)
+        if c > prev_c:
+            cur += v
+        elif c < prev_c:
+            cur -= v
+        obv.append(cur)
+        prev_c = c
+    if len(obv) < window:
+        return None
+    return obv[-1] - obv[-window]
+
+
+def cvd_approx_20(bars: List[Dict[str, Any]], window: int = 20) -> Optional[float]:
+    """Approx cumulative volume delta using bar direction as proxy.
+
+    Sum sign(close-open) * volume over the last `window` bars.
+    """
+    if not bars:
+        return None
+    take = bars[-window:]
+    acc = 0.0
+    for b in take:
+        c = float(b.get("c", 0) or 0)
+        o = float(b.get("o", 0) or 0)
+        v = float(b.get("v", 0) or 0)
+        s = 1.0 if c > o else (-1.0 if c < o else 0.0)
+        acc += s * v
+    return acc
+
+
+def atr_1m_pct(bars: List[Dict[str, Any]], period: int = 14) -> Optional[float]:
+    """ATR percent relative to last close using 1m bars."""
+    atr_abs = atr_1m(bars, period=period)
+    if atr_abs is None:
+        return None
+    last_c = float(bars[-1].get("c", 0) or 0)
+    return (atr_abs / last_c * 100.0) if last_c else None
+
+
+def pct_distance(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    """Return (a-b)/b*100 if both provided and b!=0."""
+    if a is None or b is None or not b:
+        return None
+    try:
+        return (float(a) - float(b)) / float(b) * 100.0
+    except Exception:
+        return None
+
+
 # ---------- Time helpers ----------
 def _to_ny(dt_s_or_ms: int | float) -> datetime:
     # Epoch seconds or ms → NY-local datetime

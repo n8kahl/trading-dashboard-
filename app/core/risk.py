@@ -22,6 +22,7 @@ class RiskEngine:
             "breach_daily_r": False,
             "breach_concurrent": False,
         }
+        self._last_alerts: Dict[str, bool] = {"daily": False, "concurrent": False}
 
     async def refresh(self) -> None:
         pos = await tradier.get_positions()
@@ -56,6 +57,30 @@ class RiskEngine:
 
         self.state["daily_r"] = daily_r
         self.state["breach_daily_r"] = bool(RISK_MAX_DAILY_R and daily_r > RISK_MAX_DAILY_R)
+
+        # Emit alerts on state transitions
+        try:
+            if self.state["breach_daily_r"] and not self._last_alerts.get("daily"):
+                await manager.broadcast_json({
+                    "type": "alert",
+                    "level": "critical",
+                    "msg": f"Daily loss limit breached (R={daily_r:.2f} > {RISK_MAX_DAILY_R})",
+                })
+                self._last_alerts["daily"] = True
+            if not self.state["breach_daily_r"] and self._last_alerts.get("daily"):
+                self._last_alerts["daily"] = False
+
+            if self.state["breach_concurrent"] and not self._last_alerts.get("concurrent"):
+                await manager.broadcast_json({
+                    "type": "alert",
+                    "level": "warning",
+                    "msg": f"Concurrent positions limit exceeded ({self.state['concurrent']} > {RISK_MAX_CONCURRENT})",
+                })
+                self._last_alerts["concurrent"] = True
+            if not self.state["breach_concurrent"] and self._last_alerts.get("concurrent"):
+                self._last_alerts["concurrent"] = False
+        except Exception:
+            logger.exception("risk alert broadcast failed")
 
     async def loop(self) -> None:
         while True:

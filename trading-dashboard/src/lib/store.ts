@@ -46,6 +46,9 @@ export function useRisk() {
 export function useAlerts() {
   return useSyncExternalStore(subscribe, () => state.alerts);
 }
+export function usePrices() {
+  return useSyncExternalStore(subscribe, () => state.prices);
+}
 
 export const wsStore = {
   setState,

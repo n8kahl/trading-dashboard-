@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import websockets
+from app.core.ws import manager
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY") or os.getenv("POLYGON_APIKEY") or os.getenv("POLYGON_KEY")
 WS_URL = "wss://socket.polygon.io/stocks"
@@ -132,6 +133,19 @@ class _Stream:
             if len(arr) > 3000:
                 del arr[: len(arr) - 3000]
             self._last_event_ts = time.time()
+            # broadcast last price
+            try:
+                manager_task = manager.broadcast_json({
+                    "type": "price",
+                    "symbol": sym,
+                    "last": bar["c"],
+                })
+                # fire-and-forget; ignore if loop not running in tests
+                if hasattr(manager_task, "__await__"):
+                    # schedule without blocking
+                    asyncio.create_task(manager_task)
+            except Exception:
+                pass
 
     async def _send(self, payload: Dict[str, Any]):
         # This placeholder keeps API shape consistent if we later add direct ws handle

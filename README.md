@@ -41,6 +41,10 @@ The backend reads the following environment variables:
 - `TRADIER_BASE` – Tradier API base URL (defaults to sandbox)
 - `TRADIER_ACCESS_TOKEN` – Tradier access token
 - `POLYGON_API_KEY` – optional key for Polygon quotes
+- `CHATDATA_API_KEY` – API key for chat-data.com (required for AI Coach)
+- `CHATDATA_BASE_URL` – optional API base (default `https://api.chat-data.com`)
+- `CHATDATA_API_PATH` – optional path (default `/v1/chat/completions`)
+- `CHATDATA_MODEL` – optional model ID to use
 - `DATA_MODE`
 - `WS_PING_SEC`
 - `RISK_MAX_DAILY_R`
@@ -48,6 +52,18 @@ The backend reads the following environment variables:
 - `RISK_BLOCK_UNFAVORABLE`
 - `RISK_MIN_SCORE`
 - `RISK_MAX_DOLLARS`
+ - `ENABLE_BACKGROUND_LOOPS` – start WS + risk engine on boot (default `0`)
+ - `ENABLE_ALERTS_POLLER` – start alert poller on boot (default `0`)
+
+## Scope & Design
+
+This app targets a day‑trader command center: intuitive, informative, and profitable.
+
+- Scope and principles: see `docs/SCOPE.md`
+- Confidence scoring (ATR, VWAP, EMAs, order flow): see `docs/CONFIDENCE.md`
+- Roadmap and milestones: see `docs/ROADMAP.md`
+
+Coach responses and trade suggestions include confidence with a concise component breakdown based on real data (no mocks). The assistant’s behavior adheres to the above design.
 
 ### Alerts Polling
 
@@ -75,7 +91,20 @@ Environment variables:
 Run the FastAPI app with `uvicorn app.main:app`. The dashboard connects to
 `ws://<host>/ws` for live updates. Heartbeats are sent every `WS_PING_SEC`
 seconds, and the connection manager drops unresponsive sockets.
+
+## AI Coach (chat-data.com)
+
+- Backend route: `POST /api/v1/coach/chat`
+  - Body: `{ messages: [{role, content}], stream?: false }`
+  - Uses an OpenAI-compatible API on chat-data.com.
+  - Advertises and executes tools from `/api/v1/assistant/actions` automatically.
+
+- Frontend page: `trading-dashboard/app/coach/page.tsx`
+  - Simple chat UI wired to the backend coach route.
+  - Keeps API key server-side.
+
+Confidence: All ideas include a 0–100 confidence and a brief rationale using ATR, VWAP, EMA posture, order‑flow (RVOL/OBV/CVD approx), and liquidity, per `docs/CONFIDENCE.md`.
+
 ## Large Assets
 
 Large documentation archives or starter bundles are provided via release assets or external storage. Please download them separately instead of committing them to the repository.
-

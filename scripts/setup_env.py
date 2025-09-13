@@ -43,6 +43,10 @@ def main():
     tradier_env = prompt("TRADIER_ENV [sandbox|production] (optional)", optional=True, default="sandbox")
     db_url = prompt("DATABASE_URL (leave blank for SQLite)", optional=True)
     tz = prompt("APP_TIMEZONE", default="America/Chicago")
+    chat_key = prompt("CHATDATA_API_KEY (optional)", optional=True, secret=True)
+    chat_base = prompt("CHATDATA_BASE_URL (optional)", optional=True, default="https://api.chat-data.com")
+    chat_path = prompt("CHATDATA_API_PATH (optional)", optional=True, default="/v1/chat/completions")
+    chat_model = prompt("CHATDATA_MODEL (optional)", optional=True)
 
     ENV_PATH.write_text(
         "\\n".join(
@@ -53,6 +57,10 @@ def main():
                 f"TRADIER_ENV={tradier_env}",
                 f"DATABASE_URL={db_url}",
                 f"APP_TIMEZONE={tz}",
+                f"CHATDATA_API_KEY={chat_key}",
+                f"CHATDATA_BASE_URL={chat_base}",
+                f"CHATDATA_API_PATH={chat_path}",
+                f"CHATDATA_MODEL={chat_model}",
             ]
         )
         + "\\n"

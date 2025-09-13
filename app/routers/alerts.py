@@ -1,35 +1,74 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from __future__ import annotations
 
-from app.core.failopen import fail_open
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import desc, select
+
+from app.db import db_session
+from app.models.misc import Alert
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
-def _alerts_list_fallback():
-    return {"status": "ok", "data": {"alerts": []}}
+class AlertBody(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=16)
+    timeframe: Optional[str] = Field("day", pattern=r"^(minute|day)$")
+    condition: Dict[str, Any] = Field(..., description="e.g., {type:'price_above', value:123.45, threshold_pct?:0.2}")
+    expires_at: Optional[datetime] = None
+    is_active: Optional[bool] = True
 
 
 @router.get("/list")
-@fail_open(_alerts_list_fallback)
 def alerts_list():
-    # TODO: load from DB; fallback is empty
-    return {"status": "ok", "data": {"alerts": []}}
-
-
-def _alerts_set_fallback():
-    return {"ok": True, "note": "fallback set (not persisted)"}
-
-
-class AlertBody(BaseModel):
-    # keep it permissive; tighten later if you want
-    symbol: str | None = None
-    level: float | None = None
-    note: str | None = None
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        stmt = select(Alert).order_by(desc(Alert.id)).limit(200)
+        rows = session.execute(stmt).scalars().all()
+        items = [
+            {
+                "id": r.id,
+                "symbol": r.symbol,
+                "timeframe": r.timeframe,
+                "condition": r.condition,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                "is_active": bool(r.is_active),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+        return {"ok": True, "items": items}
 
 
 @router.post("/set")
-@fail_open(_alerts_set_fallback)
 def alerts_set(body: AlertBody):
-    # TODO: persist to DB; for now, echo success
-    return {"ok": True}
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = Alert(
+            symbol=body.symbol.upper(),
+            timeframe=body.timeframe or "day",
+            condition=body.condition,
+            expires_at=body.expires_at,
+            is_active=bool(body.is_active) if body.is_active is not None else True,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "id": row.id}
+
+
+@router.post("/delete/{alert_id}")
+def alerts_delete(alert_id: int):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = session.get(Alert, alert_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        session.delete(row)
+        session.commit()
+        return {"ok": True}

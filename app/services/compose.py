@@ -13,6 +13,15 @@ except Exception:
     NY = timezone.utc
 
 from app.services.mcp_bridge import mcp_run_tool
+from app.services.ta import (
+    avwaps_for_today,
+    resample_ohlcv_5m,
+    ema as _ema_calc,
+    atr_1m_pct as _atr_1m_pct,
+    pct_distance as _pct_distance,
+    obv_slope_10 as _obv_slope_10,
+    cvd_approx_20 as _cvd_approx_20,
+)
 
 
 def _last(seq: List[dict]) -> dict | None:
@@ -174,30 +183,61 @@ async def build_context_from_polygon(symbol: str, the_day: str) -> Dict[str, Any
     if (not minute_err) and minute_bars:
         closes = [float(b.get("c", 0.0)) for b in minute_bars]
         price = float(_last(minute_bars).get("c"))
-        vwap = _vwap(minute_bars)
-        bars_above = _bars_above_vwap(minute_bars, vwap)
+        # RTH-anchored VWAPs
+        vwap_open, vwap_prev = avwaps_for_today(minute_bars)
+        vwap = vwap_open if vwap_open is not None else _vwap(minute_bars)
+        bars_above = _bars_above_vwap(minute_bars, vwap) if vwap is not None else 0
+        # EMAs & posture
         ema9_last = _ema(closes, 9)
         ema20_last = _ema(closes, 20)
         ema_posture = ema9_last is not None and ema20_last is not None and ema9_last > ema20_last
+        # 5m agreement (multi-timeframe)
+        bars_5m = resample_ohlcv_5m(minute_bars)
+        closes_5m = [float(b.get("c", 0.0)) for b in bars_5m] if bars_5m else []
+        e9_5 = _ema_calc(closes_5m, 9) if closes_5m else None
+        e20_5 = _ema_calc(closes_5m, 20) if closes_5m else None
+        ema_mtf_agree = None
+        if e9_5 is not None and e20_5 is not None and ema9_last is not None and ema20_last is not None:
+            ema_mtf_agree = bool((ema9_last > ema20_last) == (e9_5 > e20_5))
         rsi_series = _rsi(closes, 14)
         divergence = _divergence_tag(minute_bars, rsi_series)
         or_hl = _opening_range_hl(minute_bars, 30)
         relv5 = _rel_volume_5(minute_bars)
         last_ts_ms = int(_last(minute_bars).get("t"))
+        # Additional signals
+        atrp = _atr_1m_pct(minute_bars)
+        dist_vwap_pct = _pct_distance(price, vwap) if vwap is not None else None
+        dist_ema20_pct = _pct_distance(price, ema20_last) if ema20_last is not None else None
+        obv_slope = _obv_slope_10(minute_bars)
+        cvd20 = _cvd_approx_20(minute_bars)
+        # Freshness/quality
+        now_ms = int(datetime.now(tz=NY).timestamp() * 1000)
+        freshness_sec = max(0, int((now_ms - last_ts_ms) / 1000)) if last_ts_ms else None
+        bars_count = len(minute_bars)
         return {
             "symbol": symbol.upper(),
             "price": price,
             "vwap": vwap,
+            "vwap_rth": vwap_open,
+            "vwap_prev": vwap_prev,
+            "dist_vwap_pct": dist_vwap_pct,
             "bars_above_vwap": bars_above,
             "ema9_gt_ema20": bool(ema_posture),
+            "ema_mtf_agree": ema_mtf_agree,
             "divergence_5m": divergence,
             "prev_day_high": pd_hl.get("prev_day_high"),
             "prev_day_low": pd_hl.get("prev_day_low"),
             "opening_range_high": or_hl.get("opening_range_high"),
             "opening_range_low": or_hl.get("opening_range_low"),
             "rel_volume_5": relv5,
+            "atr_1m_pct": atrp,
+            "dist_ema20_pct": dist_ema20_pct,
+            "obv_slope_10": obv_slope,
+            "cvd_approx_20": cvd20,
             "last_bar_time_eastern": _ts_to_eastern_str(last_ts_ms),
             "is_power_hour": _is_power_hour(minute_bars),
+            "data_freshness_sec": freshness_sec,
+            "bars_count": bars_count,
             "source": "minute",
             "realtime": True,
         }

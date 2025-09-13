@@ -141,3 +141,5 @@ Date: 2025-09-13
   - `VERCEL_ORG_ID` — Organization ID (from Vercel → Settings → General → IDs)
   - `VERCEL_PROJECT_ID` — Project ID (from Vercel Project → Settings → General → IDs)
 - Note: The project can also use the Vercel GitHub app; this workflow is a fallback/explicit pipeline with monorepo awareness (`trading-dashboard/`).
+
+Triggered CI to validate Vercel Preview deployment.

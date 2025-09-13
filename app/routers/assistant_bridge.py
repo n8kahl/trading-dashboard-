@@ -3,59 +3,28 @@ import os, httpx
 
 router = APIRouter(prefix="/api/v1/assistant")
 
+# Optional: if you set PUBLIC_BASE_URL in env, the bridge will call that host.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 if not PUBLIC_BASE_URL:
-    # allow same-origin when deployed behind one service
     PUBLIC_BASE_URL = ""
 
+# Minimal, valid ops that match existing server routes
 OPS = {
     # Alerts
-    "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},
-    "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
+    "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
+    "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
 
     # Broker (Tradier)
-    "broker.account":      {"method":"GET", "path":"/api/v1/broker/tradier/account","mode":None},
-    "broker.positions":    {"method":"GET", "path":"/api/v1/broker/positions","mode":None},
-    "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
-    "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},
+    "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},
+    "broker.positions":    {"method": "GET",  "path": "/api/v1/broker/positions",     "mode": None},
+    "broker.order.submit": {"method": "POST", "path": "/api/v1/broker/orders/submit", "mode": "form"},
+    "broker.order.cancel": {"method": "POST", "path": "/api/v1/broker/orders/cancel", "mode": "form"},
 
-    # Options (only the route you actually have today)
-    "options.pick":        {"method":"POST","path":"/options/pick","mode":"json"},
-
-    # Diagnostics
-    "diag.health":         {"method":"GET","path":"/api/v1/diag/health","mode":None},
-}
-,
-    # Alerts
-    "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},
-    "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
-
-    # Stream (read-only status endpoints available)
-    "stream.status":       {"method":"GET", "path":"/api/v1/stream/state","mode":None},
-    "stream.risk_status":  {"method":"GET", "path":"/api/v1/stream/risk/state","mode":None},
-
-    # Broker (Tradier)
-    "broker.account":      {"method":"GET", "path":"/api/v1/broker/tradier/account","mode":None},
-    "broker.positions":    {"method":"GET", "path":"/api/v1/broker/positions","mode":None},
-    "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
-    "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},
+    # Options (present route today)
+    "options.pick":        {"method": "POST", "path": "/options/pick",                "mode": "json"},
 
     # Diagnostics
-    "diag.health":         {"method":"GET","path":"/api/v1/diag/health","mode":None},
-},
-    "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
-    # Stream
-    # "stream.start":    {"method":"POST","path":"/api/v1/market/stream/start","mode":"json"},
-    "stream.status":   {"method":"GET", "path":"/api/v1/market/stream/status","mode":None},
-    # "stream.snapshot": {"method":"GET", "path":"/api/v1/market/stream/snapshot","mode":None},
-    # "stream.stop":     {"method":"POST","path":"/api/v1/market/stream/stop","mode":None},
-    # Broker (Tradier)
-    "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
-    "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},
-    "broker.positions":    {"method":"GET", "path":"/api/v1/broker/positions","mode":None},
-    "broker.account":      {"method":"GET", "path":"/api/v1/broker/tradier/account","mode":None},
-    # Diagnostics
-    "diag.health":     {"method":"GET","path":"/api/v1/diag/health","mode":None},
+    "diag.health":         {"method": "GET",  "path": "/api/v1/diag/health",          "mode": None}
 }
 
 @router.get("/actions")
@@ -82,6 +51,6 @@ async def exec(payload: dict):
         else:
             r = await client.post(url)
 
-    ct = r.headers.get("content-type","")
+    ct = r.headers.get("content-type", "")
     data = r.json() if ct.startswith("application/json") else {"text": r.text}
     return {"ok": r.status_code < 400, "status_code": r.status_code, "data": data}

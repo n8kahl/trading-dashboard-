@@ -13,18 +13,19 @@ OPS = {
     "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},
     "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
 
-    # Broker (Tradier)
+    # Broker (Tradier sandbox)
     "broker.account":      {"method":"GET", "path":"/api/v1/broker/tradier/account","mode":None},
     "broker.positions":    {"method":"GET", "path":"/api/v1/broker/positions","mode":None},
     "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
     "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},
 
-    # Options (only the route you actually have today)
+    # Options (what your repo actually exposes today)
     "options.pick":        {"method":"POST","path":"/options/pick","mode":"json"},
 
     # Diagnostics
     "diag.health":         {"method":"GET","path":"/api/v1/diag/health","mode":None},
 }
+
 ,
     # Alerts
     "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},

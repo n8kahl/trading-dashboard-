@@ -1,15 +1,15 @@
 import os, time, threading, logging
-from typing import Dict, List, Any
+from typing import Dict, Any, List
 import httpx
 
 log = logging.getLogger(__name__)
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "")
+_interval = float(os.getenv("STREAM_POLL_SEC", "2"))
 
 _state: Dict[str, Any] = {"symbols": [], "quotes": {}, "started_at": None}
 _lock = threading.Lock()
-_thread = None
 _stop = threading.Event()
-_interval = float(os.getenv("STREAM_POLL_SEC", "2"))
+_thread = None
 
 def get_state() -> Dict[str, Any]:
     with _lock:
@@ -29,8 +29,6 @@ def set_symbols(symbols: List[str]) -> Dict[str, Any]:
 def _fetch_quotes(symbols: List[str]) -> Dict[str, Any]:
     if not symbols or not POLYGON_API_KEY:
         return {}
-    # Polygon snapshot (delayed). Pick your endpoint; this one is stable.
-    # https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=AAPL,MSFT&apiKey=...
     url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers"
     params = {"tickers": ",".join(symbols), "apiKey": POLYGON_API_KEY}
     with httpx.Client(timeout=5.0) as cx:
@@ -45,7 +43,7 @@ def _fetch_quotes(symbols: List[str]) -> Dict[str, Any]:
     return quotes
 
 def _loop():
-    log.info("[stream] poller starting interval=%ss", _interval)
+    log.info("[stream] poller starting every %ss", _interval)
     with _lock:
         _state["started_at"] = time.time()
     while not _stop.is_set():

@@ -18,6 +18,8 @@ async def lifespan(app: FastAPI):
     # TODO: add shutdown code here if needed
 
 
+from app.routers import market_stream
+
 app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
 
 # ---- safely mount routers (won't crash app if a router has issues) ----
@@ -151,6 +153,7 @@ except Exception as e:
 from app.routers import assistant_bridge
 
 app.include_router(assistant_bridge.router)
+app.include_router(market_stream.router)
 
 @app.get("/")
 def _root_redirect():
@@ -162,3 +165,8 @@ try:
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 except Exception as e:
     print("[ui] static mount skipped:", e)
+
+
+@app.on_event("startup")
+def _start_stream():
+    stream_state.start()

@@ -1,4 +1,12 @@
 from fastapi import APIRouter, HTTPException
+
+def _normalize_path_for_api_v1(path: str) -> str:
+    if not path.startswith('/'):
+        path = '/' + path
+    if not path.startswith('/api/v1/'):
+        path = '/api/v1' + path
+    return path
+
 import os, httpx
 
 router = APIRouter(prefix="/api/v1/assistant")
@@ -13,8 +21,8 @@ OPS = {
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
-    "stream.track":  {"method":"POST","path":"/api/v1/stream/track","mode":None},
-    "stream.state":  {"method":"GET", "path":"/api/v1/stream/state","mode":None},
+        "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
+        "stream.state":  {"method":"GET","path":"/stream/state","mode":None},
 
     # Broker (Tradier)
     "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},

@@ -103,3 +103,5 @@ async def _startup_tasks():
 # @app.on_event("shutdown")  # replaced by lifespan
 async def _shutdown_tradier():
     await close_tradier_client()
+app.include_router(diag.router)
+app.include_router(sizing.router)

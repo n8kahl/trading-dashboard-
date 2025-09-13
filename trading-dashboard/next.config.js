@@ -7,10 +7,6 @@
  * the project's ESLint configuration and parser settings.
  */
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-};
+const nextConfig = {};
 
 module.exports = nextConfig;

@@ -126,3 +126,18 @@ Date: 2025-09-13
 - Added root `vercel.json` to direct Vercel to build and serve the Next.js app from `trading-dashboard/` in a monorepo.
 - File: `vercel.json`
 - Note: You still need to set Vercel env vars (see `trading-dashboard/.env.example`) and ensure the project’s Root Directory is the repository root (the config routes to the app subfolder).
+
+## Update — CI Deployments to Vercel (Preview & Production)
+
+Date: 2025-09-13
+
+- Added GitHub Actions workflow to build and deploy the Next.js app to Vercel using the Vercel CLI.
+- File: `.github/workflows/vercel-deploy.yml`
+- Behavior:
+  - On PRs: builds a Preview and comments the URL on the PR.
+  - On pushes to `main`: builds and deploys to Production.
+- Required repo secrets:
+  - `VERCEL_TOKEN` — personal or team token from Vercel
+  - `VERCEL_ORG_ID` — Organization ID (from Vercel → Settings → General → IDs)
+  - `VERCEL_PROJECT_ID` — Project ID (from Vercel Project → Settings → General → IDs)
+- Note: The project can also use the Vercel GitHub app; this workflow is a fallback/explicit pipeline with monorepo awareness (`trading-dashboard/`).

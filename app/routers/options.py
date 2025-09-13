@@ -1,3 +1,19 @@
+def _safe_float(x, default=None):
+    """Parse to float safely. Returns `default` on None/empty/NaN/invalid."""
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            xs = x.strip()
+            if xs == "" or xs.lower() in {"nan","null","none","-"}:
+                return default
+            return float(xs)
+        return float(x)
+    except Exception:
+        print("failed to parse float:", repr(x))
+        return default
+
+
 from __future__ import annotations
 
 import asyncio

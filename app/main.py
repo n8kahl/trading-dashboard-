@@ -132,3 +132,6 @@ async def _start_worker():
 
 from app.routers import broker
 app.include_router(broker.router)
+
+from app.routers import broker_legacy
+app.include_router(broker_legacy.router)

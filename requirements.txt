@@ -14,3 +14,5 @@ numpy==1.26.4
 websockets==12.0
 pytz==2024.1
 httpcore==1.0.9
+
+psycopg[binary]>=3.1

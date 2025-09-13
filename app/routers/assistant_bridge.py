@@ -21,8 +21,8 @@ OPS = {
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
-                "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
-                "stream.state":  {"method":"GET","path":"/stream/quotes","mode":None},
+                    "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
+                    "stream.state":  {"method":"GET","path":"/stream/quotes","mode":None},
 
     # Broker (Tradier)
     "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},
@@ -53,7 +53,7 @@ async def exec(payload: dict):
     spec = OPS[op]
     url = (PUBLIC_BASE_URL + spec["path"]) if PUBLIC_BASE_URL else spec["path"]
 
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with _forward(method, path, args) as client:
         if spec["method"] == "GET":
             r = await client.get(url, params=args)
         elif spec["mode"] == "json":
@@ -71,5 +71,5 @@ async def exec(payload: dict):
 def _forward(method: str, url: str, json: dict | None = None):
     import httpx
     method = (method or 'GET').upper()
-    with httpx.Client(timeout=10.0) as cx:
+    with _forward(method, path, args) as cx:
         return cx.request(method, url, json=json)

@@ -21,7 +21,7 @@ OPS = {
     "broker.order.cancel": {"method": "POST", "path": "/api/v1/broker/orders/cancel", "mode": "form"},
 
     # Options (present route today)
-    "options.pick":        {"method": "POST", "path": "/options/pick",                "mode": "json"},
+    "options.pick": {"method":"POST","path":"/api/v1/options/pick","mode":"json"},
 
     # Diagnostics
     "diag.health":         {"method": "GET",  "path": "/api/v1/diag/health",          "mode": None}

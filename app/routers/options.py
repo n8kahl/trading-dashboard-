@@ -424,3 +424,35 @@ async def options_pick(
     return OptionsPickResponse(
         ok=True, env="tradier_sandbox", note="no contracts found", count_considered=0, picks=[], source="tradier"
     )
+
+
+# --- Thin routes to expose existing helpers ---
+
+from typing import Optional
+from fastapi import Query
+
+@router.get("/expirations", tags=["options"], summary="List option expirations")
+async def options_expirations(symbol: str):
+    """
+    Returns available expiration dates for a symbol (Tradier sandbox).
+    """
+    client = TradierClient()
+    exps = await _tradier_expirations(client, symbol)
+    return {"symbol": symbol, "expirations": exps or []}
+
+@router.get("/chain", tags=["options"], summary="Get option chain for a symbol/expiration")
+async def options_chain(
+    symbol: str,
+    expiration: str,
+    side: Optional[str] = Query(None, pattern="^(call|put)$"),
+    limit: int = 200,
+):
+    """
+    Returns the raw option chain (Tradier sandbox), optionally filtered by side, truncated by limit.
+    """
+    client = TradierClient()
+    opt_type = side if side in ("call", "put") else None
+    items = await _tradier_chain(client, symbol, expiration, opt_type)
+    if isinstance(limit, int) and limit > 0:
+        items = items[:limit]
+    return {"symbol": symbol, "expiration": expiration, "side": side, "items": items}

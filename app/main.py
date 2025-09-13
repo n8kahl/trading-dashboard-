@@ -102,8 +102,7 @@ _mount("app.routers.stream")  # stream snapshot
 _mount("app.routers.market_stream", secure=True)  # market stream control
 
 # assistant router (simple)
-_mount("app.routers.assistant_simple", secure=True)
-
+# [bridge] disabled: _mount("app.routers.assistant_simple", secure=True)
 # websocket endpoint
 app.add_api_websocket_route("/ws", websocket_endpoint)
 

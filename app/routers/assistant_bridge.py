@@ -1,70 +1,90 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import httpx
-
-# In-process ASGI call to avoid network/PORT issues
-from app.main import app as _app
+from typing import Any, Dict
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
-# Only non-stream ops are allowed here.
-# diag.health is universal. options.pick is optional (we’ll probe it at runtime).
-SAFE_OPS = {
-    "diag.health": {"method": "GET", "path": "/api/v1/diag/health"},
-    # We'll add "options.pick" dynamically if the endpoint exists
-}
-
-class ExecBody(BaseModel):
-    op: str
-    args: dict
-
-async def _probe_options_pick():
-    """Check if /api/v1/options/pick exists; cache result in SAFE_OPS."""
-    if "options.pick" in SAFE_OPS:
-        return True
-    try:
-        async with httpx.AsyncClient(app=_app, base_url="http://internal", timeout=4.0) as client:
-            # HEAD may not be implemented; try GET without args and accept 400/405 as 'it exists'
-            r = await client.get("/api/v1/options/pick")
-            if r.status_code in (200, 400, 405, 422):
-                SAFE_OPS["options.pick"] = {"method":"POST","path":"/api/v1/options/pick"}
-                return True
-    except Exception:
-        pass
-    return False
+# Advertised actions
+ACTIONS = [
+    {
+        "id": "options.pick",
+        "op": "options.pick",
+        "title": "Pick closest-to-ATM options",
+        "description": "Returns N near-ATM contracts for a ticker/side/horizon.",
+        "args_schema": {
+            "type": "object",
+            "title": "OptionsPickArgs",
+            "required": ["symbol", "side"],
+            "properties": {
+                "symbol": {"title": "Symbol", "type": "string"},
+                "side": {
+                    "title": "Side", "type": "string",
+                    "enum": ["long_call", "long_put", "short_call", "short_put"]
+                },
+                "horizon": {
+                    "title": "Horizon", "type": "string",
+                    "enum": ["intra","day","week"], "default": "intra"
+                },
+                "n": {"title": "N", "type": "integer", "minimum": 1, "maximum": 10, "default": 5}
+            }
+        },
+        "stable": True,
+    },
+    {
+        "id": "diag.health",
+        "op": "diag.health",
+        "title": "Server health",
+        "description": "Lightweight readiness/health via assistant layer.",
+        "args_schema": {"type": "object", "properties": {}},
+        "stable": True,
+    },
+]
 
 @router.get("/actions")
-async def assistant_actions():
-    ops = [{"op": "diag.health"}]
-    if await _probe_options_pick():
-        ops.append({"op": "options.pick"})
-    # No streaming ops; intentionally stripped
-    return {"ok": True, "actions": ops}
+def assistant_actions() -> Dict[str, Any]:
+    return {"ok": True, "actions": ACTIONS}
+
+# Try to locate a real options picker in your codebase.
+_pick_impl = None
+try:
+    # Adjust this import if your picker lives elsewhere.
+    # e.g., from app.services.options_picker import pick as _pick_impl
+    from app.routers import options as _opts  # type: ignore
+    _pick_impl = getattr(_opts, "pick", None)
+except Exception:
+    _pick_impl = None
 
 @router.post("/exec")
-async def assistant_exec(body: ExecBody):
-    # Block any stream.* op explicitly
-    if body.op.startswith("stream."):
-        raise HTTPException(status_code=400, detail={"ok": False, "error": "disabled_op", "detail": "streaming disabled", "op": body.op})
+async def assistant_exec(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generic exec: { "op": "<op>", "args": {...} }
+    Supports:
+      - diag.health
+      - options.pick  (delegates to your real implementation if present)
+    """
+    op = (payload or {}).get("op")
+    args = (payload or {}).get("args") or {}
 
-    if body.op == "options.pick":
-        ok = await _probe_options_pick()
-        if not ok:
-            raise HTTPException(status_code=400, detail={"ok": False, "error": "unknown_op", "detail": body.op, "op": body.op})
+    if not op:
+        raise HTTPException(status_code=400, detail={"ok": False, "error": "missing_op"})
 
-    spec = SAFE_OPS.get(body.op)
-    if not spec:
-        # Only diag.health and maybe options.pick are supported
-        raise HTTPException(status_code=400, detail={"ok": False, "error": "unknown_op", "detail": body.op, "op": body.op})
+    if op == "diag.health":
+        return {"ok": True, "status": "ok", "via": "assistant_bridge"}
 
-    method, path = spec["method"], spec["path"]
-    async with httpx.AsyncClient(app=_app, base_url="http://internal", timeout=15.0) as client:
-        if method == "GET":
-            r = await client.get(path, params=(body.args or {}))
-        else:
-            r = await client.request(method, path, json=(body.args or {}))
+    if op == "options.pick":
+        if _pick_impl is None:
+            raise HTTPException(
+                status_code=501,
+                detail={"ok": False, "error": "not_implemented", "hint": "Wire a real options.pick and expose it here."},
+            )
+        try:
+            res = _pick_impl(**args) if hasattr(_pick_impl, "__call__") else None
+            # handle async
+            if hasattr(res, "__await__"):
+                res = await res
+            return res if isinstance(res, dict) else {"ok": True, "result": res}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={"ok": False, "error": "options_pick_failed", "message": str(e)})
 
-    ct = (r.headers.get("content-type") or "")
-    if "application/json" in ct:
-        return r.json()
-    return {"ok": r.status_code < 400, "status": r.status_code, "text": r.text[:2000]}
+    raise HTTPException(status_code=400, detail={"ok": False, "error": "unknown_op", "op": op})

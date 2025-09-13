@@ -110,3 +110,23 @@ async def orders_cancel(request: Request):
         return {"ok": ok, "status_code": r.status_code, "body": body}
     except Exception as e:
         raise HTTPException(502, f"Upstream error: {e}")
+
+
+@router.get("/ping")
+async def ping():
+    # No network, just prove router is mounted and app responds
+    return {"ok": True, "router": "broker-legacy"}
+
+@router.get("/envcheck")
+async def envcheck():
+    # DO NOT include secrets; just presence booleans
+    import os
+    return {
+        "ok": True,
+        "TRADIER_ENV": os.getenv("TRADIER_ENV"),
+        "has_TOKEN": bool(os.getenv("TRADIER_ACCESS_TOKEN")),
+        "has_ACCOUNT": bool(os.getenv("TRADIER_ACCOUNT_ID")),
+        "TRADIER_BASE": os.getenv("TRADIER_BASE"),
+        "ENVIRONMENT": os.getenv("ENVIRONMENT"),
+        "SAFE_MODE": os.getenv("SAFE_MODE"),
+    }

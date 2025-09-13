@@ -1,35 +1,71 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from __future__ import annotations
 
-from app.core.failopen import fail_open
+import json
+import os
+from typing import Optional
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, text
 
+router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
-def _alerts_list_fallback():
-    return {"status": "ok", "data": {"alerts": []}}
+ENGINE = create_engine(os.environ["DATABASE_URL"], future=True)
 
+class AlertIn(BaseModel):
+    symbol: str = Field(min_length=1)
+    level: float
+    note: Optional[str] = None
 
 @router.get("/list")
-@fail_open(_alerts_list_fallback)
 def alerts_list():
-    # TODO: load from DB; fallback is empty
-    return {"status": "ok", "data": {"alerts": []}}
-
-
-def _alerts_set_fallback():
-    return {"ok": True, "note": "fallback set (not persisted)"}
-
-
-class AlertBody(BaseModel):
-    # keep it permissive; tighten later if you want
-    symbol: str | None = None
-    level: float | None = None
-    note: str | None = None
-
+    with ENGINE.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT id, symbol, level, note, created_at "
+            "FROM alerts ORDER BY created_at DESC"
+        )).mappings().all()
+    return {
+        "status": "ok",
+        "data": {"alerts": [
+            {
+                "id": r["id"],
+                "symbol": r["symbol"],
+                "level": float(r["level"]),
+                "note": r["note"],
+                "created_at": r["created_at"].isoformat(),
+            } for r in rows
+        ]}
+    }
 
 @router.post("/set")
-@fail_open(_alerts_set_fallback)
-def alerts_set(body: AlertBody):
-    # TODO: persist to DB; for now, echo success
-    return {"ok": True}
+def alerts_set(payload: AlertIn):
+    # Provide defaults required by your table constraints
+    condition_json = json.dumps({"type": "manual"})  # works for TEXT or JSON columns
+    is_active = True
+
+    with ENGINE.begin() as conn:
+        row = conn.execute(
+            text(
+                "INSERT INTO alerts (symbol, level, note, condition, is_active) "
+                "VALUES (:s, :l, :n, :c, :a) "
+                "RETURNING id, created_at"
+            ),
+            {
+                "s": payload.symbol,
+                "l": float(payload.level),
+                "n": payload.note,
+                "c": condition_json,
+                "a": is_active,
+            },
+        ).mappings().first()
+
+    return {
+        "ok": True,
+        "alert": {
+            "id": row["id"],
+            "symbol": payload.symbol,
+            "level": float(payload.level),
+            "note": payload.note,
+            "created_at": row["created_at"].isoformat(),
+        },
+    }

@@ -118,3 +118,6 @@ async def _shutdown_tradier():
     await close_tradier_client()
 
 from app.routers import diag, sizing
+
+from app.routers import alerts
+app.include_router(alerts.router)

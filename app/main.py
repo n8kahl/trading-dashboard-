@@ -86,7 +86,6 @@ _mount("app.routers.broker", secure=True)  # new broker routes
 _mount("app.routers.broker_tradier", secure=True)  # tradier broker routes
 _mount("app.routers.auto", secure=True)  # auto-trade
 _mount("app.routers.stream")  # stream snapshot
-_mount("app.routers.market_stream", secure=True)  # market stream control
 
 # assistant router (simple)
 _mount("app.routers.assistant_simple", secure=True)

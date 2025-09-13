@@ -155,3 +155,10 @@ app.include_router(assistant_bridge.router)
 @app.get("/")
 def _root_redirect():
     return RedirectResponse("/ui")
+
+
+# Serve the front-end at root
+try:
+    app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+except Exception as e:
+    print("[ui] static mount skipped:", e)

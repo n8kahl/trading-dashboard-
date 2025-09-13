@@ -18,11 +18,12 @@ if not PUBLIC_BASE_URL:
 
 # Minimal, valid ops that match existing server routes
 OPS = {
+    "stream.snapshot": {"method":"POST","path":"/stream/snapshot","mode":None},
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
-                    "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
-                    "stream.state":  {"method":"GET","path":"/stream/quotes","mode":None},
+                        "stream.track":   {"method":"POST","path":"/stream/track","mode":None},
+                        "stream.state":   {"method":"GET","path":"/stream/quotes","mode":None},
 
     # Broker (Tradier)
     "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},

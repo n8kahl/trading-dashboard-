@@ -1,3 +1,4 @@
+import urllib.parse
 from fastapi import APIRouter, HTTPException
 
 def _normalize_path_for_api_v1(path: str) -> str:
@@ -18,7 +19,7 @@ if not PUBLIC_BASE_URL:
 
 # Minimal, valid ops that match existing server routes
 OPS = {
-    "stream.snapshot": {"method":"POST","path":"/stream/snapshot","mode":None},
+    "stream.snapshot": {"method":"GET","path":"/stream/snapshot","mode":None},
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
@@ -74,3 +75,11 @@ def _forward(method: str, url: str, json: dict | None = None):
     method = (method or 'GET').upper()
     with _forward(method, path, args) as cx:
         return cx.request(method, url, json=json)
+
+
+def _bridge_request(method, url, args):
+    import requests
+    if method.upper() == "GET":
+        return _bridge_request(url, params=(args or {}))
+    else:
+        return requests.request(method.upper(), url, json=(args or {}))

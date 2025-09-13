@@ -13,7 +13,6 @@ def _safe_float(x, default=None):
         print("failed to parse float:", repr(x))
         return default
 
-
 from __future__ import annotations
 
 import asyncio

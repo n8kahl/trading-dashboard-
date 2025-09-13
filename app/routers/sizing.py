@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 import os, HTTPException
 
 def _tradier_env():
-    try:
+# try: (removed)
         from app.services import tradier_client as _tc
         val = getattr(_tc, 'TRADIER_ENV', None)
     except Exception:
@@ -62,7 +62,7 @@ class SizingResponse(BaseModel):
 
 @router.post("/suggest", response_model=SizingResponse)
 async def suggest(body: SizingRequest) -> SizingResponse:
-    try:
+# try: (removed)
         # 1) per-unit risk
     per_unit_risk = abs(body.entry - body.stop)
     if per_unit_risk <= 0:
@@ -71,7 +71,7 @@ async def suggest(body: SizingRequest) -> SizingResponse:
     # 2) balances
     balances: Dict[str, Any] = {}
     note_parts = []
-    try:
+# try: (removed)
         balances = await tc.account_balances()
     except Exception as e:
         note_parts.append(f"balances unavailable: {e}")
@@ -83,11 +83,11 @@ async def suggest(body: SizingRequest) -> SizingResponse:
     buying_power = (body.buying_power_override if body.buying_power_override is not None else None) or (
         balances.get("buying_power") or balances.get("day_trading_buying_power") or 0.0
     )
-    try:
+# try: (removed)
         equity = float(equity)
     except Exception:
         equity = 0.0
-    try:
+# try: (removed)
         buying_power = float(buying_power)
     except Exception:
         buying_power = 0.0

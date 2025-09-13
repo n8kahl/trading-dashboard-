@@ -22,7 +22,7 @@ def _as_list(x):
 
 # ---------- Underlying (delayed) ----------
 async def fetch_spot(ticker: str) -> float:
-    j = await get("/v1/markets/quotes", {"symbols": ticker.upper()})
+    j = await get("markets/quotes", {"symbols": ticker.upper()})
     q = (j.get("quotes") or {}).get("quote")
     if not q:
         raise TradierError(f"No quote for {ticker}")
@@ -40,7 +40,7 @@ async def fetch_spot(ticker: str) -> float:
 # ---------- Expirations ----------
 async def fetch_expirations(ticker: str) -> List[date]:
     j = await get(
-        "/v1/markets/options/expirations",
+        "markets/options/expirations",
         {
             "symbol": ticker.upper(),
             "includeAllRoots": "true",
@@ -69,7 +69,7 @@ async def choose_expiration(ticker: str, horizon: Horizon) -> date:
 # ---------- Chains & Quotes ----------
 async def fetch_chain(ticker: str, exp: date) -> List[Dict[str, Any]]:
     j = await get(
-        "/v1/markets/options/chains",
+        "markets/options/chains",
         {
             "symbol": ticker.upper(),
             "expiration": exp.isoformat(),
@@ -84,7 +84,7 @@ async def fetch_option_quotes(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     if not symbols:
         return {}
     # Batch quote — Tradier accepts comma-separated up to large counts
-    j = await get("/v1/markets/quotes", {"symbols": ",".join(symbols)})
+    j = await get("markets/quotes", {"symbols": ",".join(symbols)})
     q = (j.get("quotes") or {}).get("quote")
     items = _as_list(q)
     out: Dict[str, Dict[str, Any]] = {}

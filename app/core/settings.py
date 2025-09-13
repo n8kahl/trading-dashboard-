@@ -19,12 +19,19 @@ class Settings(BaseModel):
     TRADIER_ACCESS_TOKEN: Optional[str] = os.getenv("TRADIER_ACCESS_TOKEN")
     TRADIER_ACCOUNT_ID: Optional[str] = os.getenv("TRADIER_ACCOUNT_ID")
     TRADIER_ENV: str = os.getenv("TRADIER_ENV", "sandbox")
-    TRADIER_BASE: str = os.getenv("TRADIER_BASE", "https://sandbox.tradier.com")
+    TRADIER_BASE: Optional[str] = os.getenv("TRADIER_BASE")
 
     @property
     def tradier_base_url(self) -> str:
-        """Return the Tradier API base URL without a trailing slash."""
-        return (self.TRADIER_BASE or "").rstrip("/")
+        """Return the Tradier API base URL without a trailing slash.
+
+        If ``TRADIER_BASE`` is unset, choose between the sandbox and
+        production API hosts based on ``TRADIER_ENV``.
+        """
+        base = self.TRADIER_BASE
+        if not base:
+            base = "https://sandbox.tradier.com" if self.TRADIER_ENV == "sandbox" else "https://api.tradier.com"
+        return base.rstrip("/")
 
     # Storage / misc
     DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")

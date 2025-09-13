@@ -152,9 +152,9 @@ except Exception as e:
     print("[ui] static mount skipped:", e)
 # legacy assistant router disabled
 
-from app.routers import assistant_bridge
+from app.routers import assistant_simple
 
-app.include_router(assistant_bridge.router)
+app.include_router(assistant_simple.router)
 app.include_router(market_stream.router)
 
 @app.get("/")

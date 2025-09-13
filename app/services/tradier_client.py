@@ -9,10 +9,8 @@ class TradierError(RuntimeError): ...
 
 
 def _client() -> httpx.AsyncClient:
-    base = settings.tradier_base_url
+    base = settings.tradier_base_url.rstrip("/") + "/v1"
     token = settings.TRADIER_ACCESS_TOKEN or ""
-    if not base:
-        raise TradierError("TRADIER_BASE not set")
     if not token:
         raise TradierError("TRADIER_ACCESS_TOKEN not set")
     headers = {
@@ -24,6 +22,7 @@ def _client() -> httpx.AsyncClient:
 
 
 async def get(path: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    path = "/" + path.lstrip("/")
     async with _client() as c:
         r = await c.get(path, params=params or {})
     if r.status_code >= 400:

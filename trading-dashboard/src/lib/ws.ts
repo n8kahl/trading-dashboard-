@@ -1,8 +1,34 @@
 import { wsStore } from "./store";
 import { toast } from "sonner";
 
-export function connectWS(baseUrl: string) {
-  const url = baseUrl.replace(/^http/, "ws") + "/ws";
+function buildWsUrl(): string {
+  const key = process.env.NEXT_PUBLIC_API_KEY || "";
+  const wsBase = process.env.NEXT_PUBLIC_WS_BASE || ""; // full ws(s)://host[:port][/path]
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || ""; // http(s)://host
+  // Prefer explicit WS base
+  let url: string;
+  if (wsBase) {
+    url = wsBase;
+  } else if (apiBase) {
+    // derive wss://host/ws from https://host
+    const u = new URL(apiBase);
+    u.protocol = u.protocol.replace("http", "ws");
+    u.pathname = "/ws";
+    url = u.toString();
+  } else if (typeof window !== "undefined") {
+    url = window.location.origin.replace(/^http/, "ws") + "/ws";
+  } else {
+    url = "ws://localhost/ws";
+  }
+  if (key) {
+    const sep = url.includes("?") ? "&" : "?";
+    url += `${sep}api_key=${encodeURIComponent(key)}`;
+  }
+  return url;
+}
+
+export function connectWS() {
+  const url = buildWsUrl();
   let socket: WebSocket | null = null;
   let retry = 1000;
 

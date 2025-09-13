@@ -62,6 +62,13 @@ export default function Page() {
       apiPost("/api/v1/sizing/suggest", args)
   });
 
+  const analyze = useMutation({
+    mutationFn: async (symbol: string) => {
+      const body = { symbol, strategy_id: "auto" };
+      return apiPost("/api/v1/compose-and-analyze", body);
+    }
+  });
+
   const alertMut = useMutation({
     mutationFn: (args: {symbol:string; level:number}) =>
       apiPost("/api/v1/alerts/set", { symbol: args.symbol, timeframe: "minute", condition: { type: "price_above", value: args.level } })
@@ -73,7 +80,7 @@ export default function Page() {
   const getInput = (k: string) => inputs[k] ?? { entry: "", stop: "" };
 
   useEffect(() => {
-    connectWS(window.location.origin);
+    connectWS();
   }, []);
 
   return (
@@ -198,6 +205,23 @@ export default function Page() {
               {alertMut.isPending ? "Working…" :
                alertMut.isError ? String(alertMut.error) :
                alertMut.data ? "✓ Alert set" : "—"}
+            </div>
+          </div>
+
+          <div className="card" style={{flex:"1 1 320px"}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+              <div style={{fontWeight:600, marginBottom:6}}>Confidence & Analysis</div>
+              <button className="secondary" onClick={() => analyze.mutate(ticker)} disabled={analyze.isPending}>Analyze</button>
+            </div>
+            <div className="small" style={{marginTop:6}}>
+              {analyze.isPending ? "Analyzing…" : analyze.isError ? String(analyze.error) : analyze.data ? (
+                <>
+                  <div style={{marginBottom:6}}>
+                    <strong>Strategy:</strong> {analyze.data?.chosen_strategy || analyze.data?.input?.strategy_id || "auto"}
+                  </div>
+                  <pre style={{whiteSpace:"pre-wrap"}}>{JSON.stringify(analyze.data?.analysis ?? analyze.data, null, 2)}</pre>
+                </>
+              ) : "—"}
             </div>
           </div>
         </div>

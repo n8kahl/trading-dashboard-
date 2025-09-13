@@ -59,11 +59,22 @@ app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware
 
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://tradingassistantmcpready-production.up.railway.app",
-]
+# Allow overriding CORS origins via env (comma-separated)
+_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+if _origins_env:
+    ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+else:
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        # Railway app
+        "https://web-production-a9084.up.railway.app",
+        # Your Vercel frontend
+        "https://trading-dashboard-ten-kappa.vercel.app",
+        # Legacy default
+        "https://tradingassistantmcpready-production.up.railway.app",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else ["*"],
@@ -117,6 +128,7 @@ _mount("app.routers.options", secure=True)  # we just created this
 _mount("app.routers.alerts")  # if present
 _mount("app.routers.plan")  # if present
 _mount("app.routers.sizing")  # if present
+_mount("app.routers.compose_analyze")  # if present
 _mount("app.routers.admin")  # if present
 _mount("app.routers.broker", secure=True)  # new broker routes
 _mount("app.routers.broker_tradier", secure=True)  # tradier broker routes

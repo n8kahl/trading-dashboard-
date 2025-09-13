@@ -1,39 +1,13 @@
+from __future__ import annotations
 import os
-from contextlib import contextmanager
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from .models import Base
+def normalized_db_url() -> str:
+    v = os.environ.get("DATABASE_URL", "").strip().strip('"').strip("'")
+    if v.startswith("DATABASE_URL="):
+        v = v.split("=", 1)[1]  # tolerate mis-set values like "DATABASE_URL=postgresql+psycopg://..."
+    if not v:
+        raise RuntimeError("DATABASE_URL is empty after normalization")
+    return v
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if not DATABASE_URL:
-    # Allow app to boot even if DB not configured; routers should handle None
-    engine = None
-    SessionLocal = None
-else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
-    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
-
-
-def init_db():
-    if engine is None:
-        raise RuntimeError("DATABASE_URL not configured")
-    Base.metadata.create_all(bind=engine)
-
-
-@contextmanager
-def db_session():
-    if SessionLocal is None:
-        # Yield None for callers to handle gracefully
-        yield None
-        return
-    session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+ENGINE = create_engine(normalized_db_url(), future=True)

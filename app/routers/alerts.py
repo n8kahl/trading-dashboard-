@@ -6,11 +6,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
-ENGINE = create_engine(os.environ["DATABASE_URL"], future=True)
+from app.db import ENGINE
 
 class AlertIn(BaseModel):
     symbol: str = Field(min_length=1)

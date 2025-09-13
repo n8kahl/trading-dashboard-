@@ -95,3 +95,16 @@ Date: 2025-09-13
 - Added table view of active alerts with delete action.
 - Added Discord enablement hint.
 - File: `trading-dashboard/app/alerts/page.tsx`
+
+## Update — Auto PR + Auto‑Merge Workflow
+
+Date: 2025-09-13
+
+- Added workflow to automatically open a PR from feature branches to `main` on push, label it `automerge`, and enable GitHub’s auto‑merge (squash) using the repository `GITHUB_TOKEN`.
+- File: `.github/workflows/auto-pr-automerge.yml`
+- Behavior:
+  - On push to branches matching `feat/**`, `fix/**`, `chore/**`, `refactor/**` (and the current feature branch), the workflow:
+    1) Creates or finds an open PR to `main`.
+    2) Adds labels `automerge` and `codex` (best effort).
+    3) Enables auto‑merge (squash). Merge will complete automatically once required checks pass and branch protection conditions are satisfied.
+- Note: Respects your branch protection. If approvals are required, auto‑merge waits for them.

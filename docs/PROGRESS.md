@@ -54,3 +54,34 @@ Set on Railway:
 
 See `docs/UX_PLAN.md` for detailed UX/UI flow, feature review, and implementation plan focused on a responsible, production‑ready web app.
 
+---
+
+## Update — UI Components (Risk, Confidence, Inline Alerts)
+
+Date: 2025-09-13
+
+Implemented first-pass live UI pieces aligned to the plan:
+
+- Risk banner in status strip
+  - Shows `daily_r`, concurrent positions, and breach flags from WS `risk` events.
+  - File: `trading-dashboard/app/page.tsx`
+
+- Confidence card (Analyze)
+  - Score band chip with label (Unfavorable/Mixed/Favorable), component chips (ATR/VWAP/EMAs/Flow/Liquidity), and freshness seconds.
+  - Calls `/api/v1/compose-and-analyze` via the proxy.
+  - File: `trading-dashboard/app/page.tsx`
+
+- Inline Create Alert control
+  - Defaults to ±1R from entry; optional threshold % to offset from entry price.
+  - Posts to `/api/v1/alerts/set` with type `price_above|price_below` and `threshold_pct`.
+  - File: `trading-dashboard/app/page.tsx`
+
+Branch and PR
+- Branch: `feat/dashboard-live-confidence-discord`
+- Open PR: https://github.com/n8kahl/trading-dashboard-/pull/new/feat/dashboard-live-confidence-discord
+
+Pick-up Next
+- Confidence UI polish: colors, tooltips for components, “why” rationale text.
+- Alerts page enhancements: types/timeframe/expiry controls, live updates, Discord enablement hint.
+- Initial snapshot fetch for positions/orders; basic readonly lists.
+- Style Risk banner with severity colors and link to Settings.

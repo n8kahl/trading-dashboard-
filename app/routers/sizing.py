@@ -3,7 +3,19 @@ from __future__ import annotations
 from math import floor
 from typing import Any, Dict, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+import os, HTTPException
+
+def _tradier_env():
+    try:
+        from app.services import tradier_client as _tc
+        val = getattr(_tc, 'TRADIER_ENV', None)
+    except Exception:
+        val = None
+    import os as _os
+    return (val or _os.getenv('TRADIER_ENV') or _os.getenv('TRADIER_MODE') or 'prod')
+
 from pydantic import BaseModel, Field
 
 from app.services import tradier_client as tc
@@ -50,7 +62,8 @@ class SizingResponse(BaseModel):
 
 @router.post("/suggest", response_model=SizingResponse)
 async def suggest(body: SizingRequest) -> SizingResponse:
-    # 1) per-unit risk
+    try:
+        # 1) per-unit risk
     per_unit_risk = abs(body.entry - body.stop)
     if per_unit_risk <= 0:
         raise HTTPException(status_code=400, detail="entry and stop must differ")
@@ -121,13 +134,16 @@ async def suggest(body: SizingRequest) -> SizingResponse:
             qty = max(body.min_qty, qty_risk)
             note_parts.append("no notional cap (buying power unknown)")
         notional = qty * per_contract_risk
-
-    if tc.TRADIER_ENV == "sandbox":
+    if _tradier_env().lower().startswith('sand'):
         note_parts.append("Sandbox data delayed ~15m; balances/quotes may be stale")
 
     return SizingResponse(
+    except Exception as e:
+        import logging, traceback
+        logging.exception('sizing.suggest failed')
+        return JSONResponse(status_code=422, content={'error': str(e)})
         ok=True,
-        env=tc.TRADIER_ENV,
+        env=_tradier_env(),
         note="; ".join(note_parts) or None,
         account_snapshot=balances,
         risk_budget_R=risk_budget,

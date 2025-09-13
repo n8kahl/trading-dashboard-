@@ -24,7 +24,9 @@ OPS = {
     "options.pick": {"method":"POST","path":"/api/v1/options/pick","mode":"json"},
 
     # Diagnostics
-    "diag.health":         {"method": "GET",  "path": "/api/v1/diag/health",          "mode": None}
+    "diag.health":         {"method": "GET",  "path": "/api/v1/diag/health",          "mode": None},
+    "options.expirations": {"method":"GET","path":"/api/v1/options/expirations","mode":None},
+    "options.chain":       {"method":"GET","path":"/api/v1/options/chain","mode":None}
 }
 
 @router.get("/actions")

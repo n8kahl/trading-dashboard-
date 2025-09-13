@@ -60,7 +60,8 @@ $.stopStream.onclick = async () => {
   await postJSON("/api/v1/market/stream/stop", {});
   await refreshStream();
 };
-setInterval(() => { refreshStream(); refreshSnapshot(); }, 5000);
+// keep status refresh
+setInterval(() => { refreshStream(); }, 5000);
 
 // --- Alerts ---
 $.setAlert.onclick = async () => {
@@ -117,3 +118,69 @@ $.btnOrders.onclick = async () => {
   const res = await getJSON("/api/v1/broker/tradier/account");
   pretty($.accountOut, res);
 };
+
+
+// ===== Live UX upgrades =====
+const DEFAULT_SYMBOLS = ["SPY","QQQ","I:SPX"];
+let tapeBuf = []; const TAPE_MAX = 50;
+
+function isMarketHours() {
+  const now = new Date();
+  const h = now.getUTCHours(), m = now.getUTCMinutes();
+  const minutes = h*60 + m;
+  return minutes >= 13*60+30 && minutes <= 20*60;
+}
+function renderTape(snap) {
+  const el = document.getElementById("tape"); if (!el) return;
+  const rows = [];
+  const data = snap?.data || snap || {};
+  Object.entries(data).forEach(([sym, d])=>{
+    if (!d) return;
+    const last = d.last ?? d.price ?? d.close ?? null;
+    const bid  = d.bid ?? null;
+    const ask  = d.ask ?? null;
+    const ts   = d.ts ?? d.time ?? new Date().toISOString();
+    if (last==null && bid==null && ask==null) return;
+    rows.push({ts, sym, last, bid, ask});
+  });
+  rows.sort((a,b)=> a.ts > b.ts ? 1 : -1).forEach(r=>{
+    tapeBuf.push(r); if (tapeBuf.length > TAPE_MAX) tapeBuf.shift();
+  });
+  const html = [...tapeBuf].reverse().map(r =>
+    `<div class="flex gap-3"><span class="text-slate-500">${r.ts}</span><b>${r.sym}</b>`
+    + `<span>last:${r.last ?? "-"}</span><span>bid:${r.bid ?? "-"}</span><span>ask:${r.ask ?? "-"}</span></div>`
+  ).join("");
+  el.innerHTML = html || '<div class="text-slate-500">No ticks yet (after-hours is normal).</div>';
+}
+async function ensureStreamStarted() {
+  try {
+    const stat = await getJSON("/api/v1/market/stream/status");
+    const watching = stat?.data?.watching ?? [];
+    if (!stat?.data?.connected || watching.length===0) {
+      const input = document.getElementById("streamSymbols")?.value?.trim();
+      const symbols = input ? input.split(",").map(s => s.trim().toUpperCase()).filter(Boolean) : DEFAULT_SYMBOLS;
+      await postJSON("/api/v1/market/stream/start", { symbols });
+    }
+  } catch {}
+}
+async function refreshSnapshotFast() {
+  try {
+    const snap = await getJSON("/api/v1/market/stream/snapshot");
+    pretty(document.getElementById("snapshot"), snap);
+    renderTape(snap);
+  } catch {}
+}
+async function refreshAccountPassive() {
+  if (!isMarketHours()) return;
+  try {
+    const pos = await getJSON("/api/v1/broker/positions");
+    const acct = await getJSON("/api/v1/broker/tradier/account");
+    pretty(document.getElementById("accountOut"), { positions: pos, account: acct });
+  } catch {}
+}
+// boot
+(async () => {
+  try { await ensureStreamStarted(); await refreshStream(); await refreshSnapshotFast(); } catch {}
+})();
+setInterval(refreshSnapshotFast, 2000);
+setInterval(refreshAccountPassive, 10000);

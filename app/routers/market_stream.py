@@ -11,3 +11,9 @@ def track(payload: dict):
 @router.get("/state")
 def state():
     return {"ok": True, "data": ss.get_state()}
+
+
+@router.get("/quotes")
+def quotes():
+    from app.services import stream_state as ss
+    return {"ok": True, "data": ss.get_state()}

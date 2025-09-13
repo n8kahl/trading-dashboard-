@@ -21,8 +21,8 @@ OPS = {
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
-        "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
-        "stream.state":  {"method":"GET","path":"/stream/state","mode":None},
+            "stream.track":  {"method":"POST","path":"/stream/track","mode":None},
+            "stream.state":  {"method":"GET","path":"/stream/quotes","mode":None},
 
     # Broker (Tradier)
     "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},
@@ -66,3 +66,10 @@ async def exec(payload: dict):
     ct = r.headers.get("content-type", "")
     data = r.json() if ct.startswith("application/json") else {"text": r.text}
     return {"ok": r.status_code < 400, "status_code": r.status_code, "data": data}
+
+
+def _forward(method: str, url: str, json: dict | None = None):
+    import httpx
+    method = (method or 'GET').upper()
+    with httpx.Client(timeout=10.0) as cx:
+        return cx.request(method, url, json=json)

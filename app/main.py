@@ -34,6 +34,7 @@ except Exception as e:
 
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -123,7 +124,10 @@ from app.routers import alerts
 app.include_router(alerts.router)
 
 import asyncio, os
-from app.alerts_worker import run_poller
+try:
+    from app.alerts_worker import run_poller
+except Exception:
+    run_poller = None  # optional
 
 @app.on_event("startup")
 async def _start_worker():
@@ -135,3 +139,10 @@ app.include_router(broker.router)
 
 from app.routers import broker_legacy
 app.include_router(broker_legacy.router)
+
+
+# Serve the front-end at root
+try:
+    app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+except Exception as e:
+    print("[ui] static mount skipped:", e)

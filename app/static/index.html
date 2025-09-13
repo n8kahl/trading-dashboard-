@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trading Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <div class="max-w-6xl mx-auto p-4 space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">Trading Dashboard</h1>
+      <div id="healthBadge" class="text-sm px-2 py-1 rounded bg-slate-800">checking…</div>
+    </header>
+
+    <!-- Quick status -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="p-4 rounded bg-slate-900">
+        <h2 class="font-medium mb-2">Environment</h2>
+        <pre id="env" class="text-xs whitespace-pre-wrap"></pre>
+      </div>
+      <div class="p-4 rounded bg-slate-900">
+        <h2 class="font-medium mb-2">Stream Status</h2>
+        <pre id="streamStatus" class="text-xs whitespace-pre-wrap"></pre>
+        <div class="mt-2 flex gap-2">
+          <input id="streamSymbols" class="w-full px-2 py-1 rounded bg-slate-800 text-xs" placeholder='Symbols (e.g. AAPL,NVDA,TSLA)' />
+          <button id="startStream" class="px-3 py-1 rounded bg-emerald-600 text-xs">Start</button>
+          <button id="stopStream" class="px-3 py-1 rounded bg-rose-600 text-xs">Stop</button>
+        </div>
+      </div>
+      <div class="p-4 rounded bg-slate-900">
+        <h2 class="font-medium mb-2">Snapshot (latest ticks)</h2>
+        <pre id="snapshot" class="text-xs whitespace-pre-wrap"></pre>
+      </div>
+    </section>
+
+    <!-- Alerts -->
+    <section class="p-4 rounded bg-slate-900">
+      <h2 class="font-medium mb-2">Price Alerts</h2>
+      <div class="flex flex-wrap gap-2 mb-2">
+        <input id="alertSymbol" class="px-2 py-1 rounded bg-slate-800 text-sm" placeholder="Symbol (AAPL)" />
+        <input id="alertLevel" class="px-2 py-1 rounded bg-slate-800 text-sm" placeholder="Level (234.5)" />
+        <input id="alertNote" class="px-2 py-1 rounded bg-slate-800 text-sm" placeholder="Note (optional)" />
+        <button id="setAlert" class="px-3 py-1 rounded bg-blue-600 text-sm">Set Alert</button>
+        <button id="listAlerts" class="px-3 py-1 rounded bg-slate-700 text-sm">List Alerts</button>
+      </div>
+      <pre id="alertsList" class="text-xs whitespace-pre-wrap"></pre>
+    </section>
+
+    <!-- Orders -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="p-4 rounded bg-slate-900">
+        <h2 class="font-medium mb-2">Equity Order</h2>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <input id="eqSymbol" class="px-2 py-1 rounded bg-slate-800" placeholder="Symbol (AAPL)" />
+          <select id="eqSide" class="px-2 py-1 rounded bg-slate-800">
+            <option value="buy">buy</option><option value="sell">sell</option>
+          </select>
+          <input id="eqQty" class="px-2 py-1 rounded bg-slate-800" placeholder="Qty (1)" />
+          <select id="eqType" class="px-2 py-1 rounded bg-slate-800">
+            <option value="market">market</option><option value="limit">limit</option>
+          </select>
+          <input id="eqPrice" class="px-2 py-1 rounded bg-slate-800" placeholder="Limit/Stop price (optional)" />
+          <select id="eqDur" class="px-2 py-1 rounded bg-slate-800">
+            <option value="day">day</option><option value="gtc">gtc</option>
+          </select>
+        </div>
+        <div class="mt-2">
+          <button id="eqSubmit" class="px-3 py-1 rounded bg-emerald-600 text-sm">Submit Equity Order</button>
+        </div>
+        <pre id="eqResp" class="mt-2 text-xs whitespace-pre-wrap"></pre>
+      </div>
+
+      <div class="p-4 rounded bg-slate-900">
+        <h2 class="font-medium mb-2">Option Order</h2>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <input id="opRoot" class="px-2 py-1 rounded bg-slate-800" placeholder="Root (SPY)" />
+          <input id="opOcc" class="px-2 py-1 rounded bg-slate-800" placeholder="OCC (SPY250919C00670000)" />
+          <select id="opSide" class="px-2 py-1 rounded bg-slate-800">
+            <option value="buy_to_open">buy_to_open</option><option value="sell_to_close">sell_to_close</option>
+          </select>
+          <input id="opQty" class="px-2 py-1 rounded bg-slate-800" placeholder="Qty (1)" />
+          <select id="opType" class="px-2 py-1 rounded bg-slate-800">
+            <option value="market">market</option><option value="limit">limit</option>
+          </select>
+          <input id="opPrice" class="px-2 py-1 rounded bg-slate-800" placeholder="Limit/Stop price (optional)" />
+          <select id="opDur" class="px-2 py-1 rounded bg-slate-800">
+            <option value="day">day</option><option value="gtc">gtc</option>
+          </select>
+        </div>
+        <div class="mt-2">
+          <button id="opSubmit" class="px-3 py-1 rounded bg-emerald-600 text-sm">Submit Option Order</button>
+        </div>
+        <pre id="opResp" class="mt-2 text-xs whitespace-pre-wrap"></pre>
+      </div>
+    </section>
+
+    <!-- Account -->
+    <section class="p-4 rounded bg-slate-900">
+      <h2 class="font-medium mb-2">Account</h2>
+      <div class="flex gap-2 mb-2">
+        <button id="btnPositions" class="px-3 py-1 rounded bg-slate-700 text-sm">Positions</button>
+        <button id="btnOrders" class="px-3 py-1 rounded bg-slate-700 text-sm">Orders</button>
+      </div>
+      <pre id="accountOut" class="text-xs whitespace-pre-wrap"></pre>
+    </section>
+
+    <footer class="text-xs text-slate-400 pt-6">
+      Note: After-hours orders may remain <em>pending</em> until market open (8:30am–3:00pm CT).
+    </footer>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

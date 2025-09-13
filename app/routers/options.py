@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 def _safe_float(x, default=None):
     """Parse to float safely. Returns `default` on None/empty/NaN/invalid."""
     try:
@@ -13,7 +15,6 @@ def _safe_float(x, default=None):
         print("failed to parse float:", repr(x))
         return default
 
-from __future__ import annotations
 
 import asyncio
 import datetime as dt

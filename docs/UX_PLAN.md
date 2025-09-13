@@ -29,8 +29,8 @@ This plan focuses on a live, production‑ready trading dashboard with clear nex
 2) Discovery → Analysis → Action
 - Pick symbol from Watchlist → backend `/options/pick` returns top 5 contracts.
 - Live price renders from WS; stale badge if `age_sec > 60`.
-- Analyze: Call `/compose-and-analyze` → show score band (0–100) and components (ATR, VWAP, EMA, Flow, Liquidity) with concise rationale.
-- Quick actions: “Size It”, “Set Alert”, “Ask Coach” (pre‑filled prompt).
+- Analyze: Call `/compose-and-analyze` → show score band (0–100) and components (ATR, VWAP, EMA, Flow, Liquidity) with concise rationale and data freshness.
+- Quick actions (NBA): “Plan”, “Size It”, “Set Alert”, “Ask Coach”. Place Order only shows when broker keys present and user confirms.
 
 3) Plan & Sizing
 - Plan: `/plan/validate` validates entry/stop → shows 1R/2R targets and sanity notes.
@@ -38,9 +38,9 @@ This plan focuses on a live, production‑ready trading dashboard with clear nex
 - Confirmations: Always require explicit confirmation before any broker action.
 
 4) Alerts
-- Create: Inline control on Dashboard; CRUD in Alerts page.
+- Create: Inline control on Dashboard; CRUD in Alerts page. Defaults to ±1R levels with type (above/below), timeframe (minute/day), and optional expiry.
 - Poller: Backend checks and emits WS `alert`; optional Discord forward if enabled.
-- UI: Action chips (“Size now”, “Open Coach”) link to next steps.
+- UI: Action chips (NBA) — “Plan”, “Size It”, “Ask Coach”, “Set Follow‑Up Alert”.
 
 5) Orders & Positions (when broker keys present)
 - Positions and Orders stream via snapshot + WS; risk banner warns on breaches.
@@ -67,11 +67,11 @@ This plan focuses on a live, production‑ready trading dashboard with clear nex
 
 2. Confidence UI Component
 - Band chip (unfavorable <50, mixed 50–69, favorable ≥70), timestamp, rationale.
-- Component breakdown chips: ATR, VWAP, EMAs, Flow, Liquidity (with contributions).
+- Component breakdown chips: ATR, VWAP, EMAs, Flow, Liquidity (with contributions and tooltips explaining signals).
 
 3. Alerts UX
-- Inline “Create Alert” (price_above/below) with smart defaults (±1R).
-- Alerts page: filters, toggles, expires_at; real‑time updates.
+- Inline “Create Alert” (price_above/below) with smart defaults (±1R) and threshold %.
+- Alerts page: filters, toggles, expires_at; real‑time updates and Discord enablement hint.
 
 4. Risk Banner
 - Show current `risk.state`; badge colors on breaches; link to Settings.
@@ -89,7 +89,7 @@ This plan focuses on a live, production‑ready trading dashboard with clear nex
 ## Implementation Plan (Backend Touchpoints)
 - Stream: ensure `/ws` emits `price`, `risk`, `alert`; `/stream/state` used for initial page load.
 - CORS: keep env‑driven; lock down in production.
-- Compose/Analyze: ensure score components include ATR/VWAP/EMA/Flow/Liquidity.
+- Compose/Analyze: ensure score components include ATR/VWAP/EMA/Flow/Liquidity; expose freshness and bars_count for quality multiplier.
 - Alerts: ensure poller covers minute + day TF; persist triggers; optional Discord forward.
 
 ## Milestones
@@ -98,4 +98,3 @@ This plan focuses on a live, production‑ready trading dashboard with clear nex
 - M2: Positions/Orders (readonly) + Size/Plan integration
 - M3: Broker actions with confirm flows + Journal logging
 - M4: Discord alert forwarding acceptance + Observability pass
-

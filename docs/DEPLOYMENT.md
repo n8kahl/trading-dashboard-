@@ -5,6 +5,13 @@ Status
 - Automatic deploys should trigger on pushes to the repository (Vercel project: see README link).
 - Current live status is unknown from the repo alone (requires either the public deployment URL or Vercel API access).
 
+
+Project Settings
+- Framework Preset: Next.js
+- Root Directory: `trading-dashboard`
+- Functions: Keep `/app/api/proxy` on Edge runtime (already set via `export const runtime = "edge"`).
+
+
 What We Need To Verify
 - Public URL or Vercel project slug to probe health (e.g., curl the root and `/api/proxy`).
 - If available, a Vercel token to query the Deployments API.
@@ -29,6 +36,10 @@ Backend Deploy Targets
 - If the backend is hosted separately (Railway/VM), ensure it’s reachable by Vercel and CORS allows the Vercel origin.
 
 Notes
+
+- `vercel.json` builds from `trading-dashboard/` using `@vercel/next`.
+- For WS, prefer `NEXT_PUBLIC_WS_BASE` if you terminate TLS or path differs.
+
 - vercel.json routes all paths to the Next.js app directory: ensure API proxy `/api/proxy` keeps working.
 - For WS, prefer `NEXT_PUBLIC_WS_BASE` if you terminate TLS or path differs.
 

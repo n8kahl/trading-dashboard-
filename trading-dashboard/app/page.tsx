@@ -140,7 +140,7 @@ export default function Page() {
               const k = c.symbol; // contract symbol as key
               const { entry, stop } = getInput(k);
               const line1 = `Δ ${smallNum(c.delta,2)} · bid ${smallNum(c.bid)} / ask ${smallNum(c.ask)} · mark ${smallNum(c.mark)}`;
-              const line2 = `spread ${smallNum(c.spread_pct*100,2)}% · OI ${c.open_interest ?? "—"} · Vol ${c.volume ?? "—"}`;
+              const line2 = `spread ${c.spread_pct !== undefined ? smallNum(c.spread_pct*100,2) + '%' : '—'} · OI ${c.open_interest ?? "—"} · Vol ${c.volume ?? "—"}`;
 
               return (
                 <div key={k} className="card" style={{margin:0}}>
@@ -281,7 +281,11 @@ function ConfidenceCard({ ticker, analyze }: { ticker: string; analyze: any }) {
               {Object.keys(comps).length ? (
                 Object.entries(comps).map(([k,v]) => (
                   <span key={k} className="chip" title={k}>
+
+                    {k.replace(/_/g,' ')}: {(v as number) >= 0 ? `+${v}` : v}
+
                     {k.replace(/_/g,' ')}: {v as number >= 0 ? `+${v}` : v}
+
                   </span>
                 ))
               ) : (

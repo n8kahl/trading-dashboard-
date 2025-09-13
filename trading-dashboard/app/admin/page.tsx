@@ -59,7 +59,7 @@ export default function AdminPage() {
 
       <section className="card" style={{marginBottom:16}}>
         <h2 style={{margin:"0 0 8px"}}>Signals</h2>
-        {signals.isLoading ? "Loading…" : signals.isError ? String(signals.error) : (
+        {signals.isPending ? "Loading…" : signals.isError ? String(signals.error) : (
           <table className="table">
             <thead>
               <tr><th>Time</th><th>Symbol</th><th>Strategy</th><th>P(win)</th><th>E[R]</th><th>Action</th></tr>
@@ -82,7 +82,7 @@ export default function AdminPage() {
 
       <section className="card" style={{marginBottom:16}}>
         <h2 style={{margin:"0 0 8px"}}>Positions</h2>
-        {positions.isLoading ? "Loading…" : positions.isError ? String(positions.error) : (
+        {positions.isPending ? "Loading…" : positions.isError ? String(positions.error) : (
           <table className="table">
             <thead>
               <tr><th>Symbol</th><th>Side</th><th>Avg</th><th>Qty</th><th>U/R</th><th>Risk</th></tr>
@@ -106,7 +106,7 @@ export default function AdminPage() {
       <section className="card">
         <h2 style={{margin:"0 0 8px"}}>Calibration (vwap_bounce • 30d)</h2>
         <pre className="small" style={{whiteSpace:"pre-wrap"}}>
-          {calib.isLoading ? "Loading…" : calib.isError ? String(calib.error) : JSON.stringify(calib.data, null, 2)}
+          {calib.isPending ? "Loading…" : calib.isError ? String(calib.error) : JSON.stringify(calib.data, null, 2)}
         </pre>
       </section>
     </main>

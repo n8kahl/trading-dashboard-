@@ -108,3 +108,13 @@ Date: 2025-09-13
     2) Adds labels `automerge` and `codex` (best effort).
     3) Enables auto‑merge (squash). Merge will complete automatically once required checks pass and branch protection conditions are satisfied.
 - Note: Respects your branch protection. If approvals are required, auto‑merge waits for them.
+
+## Update — Initial Snapshot on UI Boot
+
+Date: 2025-09-13
+
+- Added client boot hook to fetch `/api/v1/stream/state` once and seed positions/orders/risk before WS updates arrive.
+- Files:
+  - `trading-dashboard/src/components/BootSnapshot.tsx`
+  - `trading-dashboard/app/layout.tsx` (renders BootSnapshot inside QueryProvider)
+- Benefit: Positions/Orders pages show server snapshot immediately; then WS keeps them fresh.

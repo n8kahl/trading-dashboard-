@@ -23,7 +23,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <section>
         <h2 className="mb-2 text-lg font-semibold">Watchlist</h2>
-        {watchlist.isLoading ? (
+        {watchlist.isPending ? (
           <Skeleton className="h-24" />
         ) : watchlist.data?.length ? (
           <Table data={watchlist.data.slice(0,5)} columns={[{ header: 'Symbol', accessor: (r) => r.symbol }]} />
@@ -34,7 +34,7 @@ export default function DashboardPage() {
 
       <section>
         <h2 className="mb-2 text-lg font-semibold">Ranked Picks</h2>
-        {ranked.isLoading ? (
+        {ranked.isPending ? (
           <Skeleton className="h-24" />
         ) : ranked.data?.length ? (
           <Table data={ranked.data.slice(0,5)} columns={[{ header: 'Symbol', accessor: (r) => r.symbol }, {header: 'Score', accessor: (r)=>r.score}]} />
@@ -45,7 +45,7 @@ export default function DashboardPage() {
 
       <section>
         <h2 className="mb-2 text-lg font-semibold">ATM Contracts</h2>
-        {options.isLoading ? (
+        {options.isPending ? (
           <Skeleton className="h-24" />
         ) : options.data?.length ? (
           <Table data={options.data.slice(0,5)} columns={[

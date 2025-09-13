@@ -1,6 +1,6 @@
 # Progress — 2025-09-13
 
-Updated: 2025-09-13 20:20 UTC
+Updated: 2025-09-13 21:30 UTC
 
 This document summarizes current implementation status, test coverage, and deployment notes. It is updated at the start/end of each session.
 
@@ -8,7 +8,7 @@ Summary
 - Core backend and dashboard are live; alerts, sizing, planning, and broker sandbox flows are implemented.
 - Coach can fetch options data, validate plans, suggest sizing, place (sandbox) orders, set alerts, create journal entries, and compose+analyze for confidence.
 - All tests pass locally (43 passed).
-- Vercel deployment configured; env set. Latest prod deploy previously errored on bundle size; mitigations shipped and a redeploy is required.
+- Vercel deployment configured; env set. Latest prod deploy previously errored on bundle size; mitigations shipped and a redeploy is required. Latest local Next.js build still fails during prerender (missing getServerSnapshot in app stores).
 
 Backend
 - FastAPI app with lifespan/CORS/health/ready: `app/main.py`
@@ -31,6 +31,7 @@ Frontend (Next.js)
 - Coach chat page wired to backend: `trading-dashboard/app/coach/page.tsx`
 - Alerts, Journal, Admin pages present: `trading-dashboard/app/alerts/page.tsx`, `trading-dashboard/app/journal/page.tsx`, `trading-dashboard/app/admin/page.tsx`
 - Positions/Orders pages: `trading-dashboard/app/positions/page.tsx`, `trading-dashboard/app/orders/page.tsx`
+- Replaced deprecated `isLoading` flags with `isPending`, added PostCSS plugin, and removed legacy `src/app` scaffold.
 
 Tests
 - 43 passed, 0 failed (pytest). See `tests/`.

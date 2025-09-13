@@ -15,7 +15,7 @@ export default function SizingPage() {
     <div className="space-y-4">
       <div className="flex space-x-2">
         <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Symbol" />
-        <Button onClick={() => mutation.mutate(symbol)} disabled={mutation.isLoading}>Suggest</Button>
+        <Button onClick={() => mutation.mutate(symbol)} disabled={mutation.isPending}>Suggest</Button>
       </div>
       {mutation.data && (
         <div className="space-y-2">

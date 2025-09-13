@@ -1,3 +1,4 @@
+from app.routers import assistant_bridge
 import importlib
 import logging
 from contextlib import asynccontextmanager

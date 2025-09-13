@@ -14,12 +14,8 @@ export default function SizingPage() {
   return (
     <div className="space-y-4">
       <div className="flex space-x-2">
-        <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Symbol" />
-<<<<<<< HEAD
-        <Button onClick={() => mutation.mutate(symbol)} disabled={mutation.isPending}>Suggest</Button>
-=======
+  <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Symbol" />
   <Button onClick={() => mutation.mutate(symbol)} disabled={mutation.isPending}>Suggest</Button>
->>>>>>> 9d602737 (fix(next): provide getServerSnapshot for useSyncExternalStore and several build fixes)
       </div>
       {mutation.data && (
         <div className="space-y-2">

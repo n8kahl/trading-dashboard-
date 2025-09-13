@@ -282,9 +282,7 @@ function ConfidenceCard({ ticker, analyze }: { ticker: string; analyze: any }) {
                 Object.entries(comps).map(([k,v]) => (
                   <span key={k} className="chip" title={k}>
 
-                    {k.replace(/_/g,' ')}: {(v as number) >= 0 ? `+${v}` : v}
-
-                    {k.replace(/_/g,' ')}: {v as number >= 0 ? `+${v}` : v}
+                      {k.replace(/_/g,' ')}: {(v as number) >= 0 ? `+${v}` : v}
 
                   </span>
                 ))

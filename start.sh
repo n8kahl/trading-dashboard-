@@ -1,12 +1,17 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "[start.sh] CWD=$(pwd)"
-echo "[start.sh] PORT=${PORT:-8000}"
-echo "[start.sh] SAFE_MODE=${SAFE_MODE:-0}"
+# Load .env if present (useful locally)
+if [ -f ./.env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
 
-# show what's inside /app for sanity
-ls -la /app || true
+: "${DATABASE_URL:?DATABASE_URL is required}"
 
-echo "[start.sh] Launching app on :${PORT:-8000}"
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+# Apply DB migrations (no-op if already up-to-date)
+alembic upgrade head || true
+
+# Launch the app
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8080}"

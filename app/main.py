@@ -19,6 +19,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
 
+# ---- safely mount routers (won't crash app if a router has issues) ----
+try:
+    diag = importlib.import_module("app.routers.diag")
+    app.include_router(diag.router)
+except Exception as e:
+    logging.exception("Skipping diag router: %s", e)
+
+try:
+    sizing = importlib.import_module("app.routers.sizing")
+    app.include_router(sizing.router)
+except Exception as e:
+    logging.exception("Skipping sizing router: %s", e)
+
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -103,7 +116,5 @@ async def _startup_tasks():
 # @app.on_event("shutdown")  # replaced by lifespan
 async def _shutdown_tradier():
     await close_tradier_client()
-app.include_router(diag.router)
-app.include_router(sizing.router)
 
 from app.routers import diag, sizing

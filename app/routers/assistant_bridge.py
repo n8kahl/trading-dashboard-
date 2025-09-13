@@ -12,6 +12,21 @@ OPS = {
     # Alerts
     "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},
     "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
+
+    # Stream (read-only status endpoints available)
+    "stream.status":       {"method":"GET", "path":"/api/v1/stream/state","mode":None},
+    "stream.risk_status":  {"method":"GET", "path":"/api/v1/stream/risk/state","mode":None},
+
+    # Broker (Tradier)
+    "broker.account":      {"method":"GET", "path":"/api/v1/broker/tradier/account","mode":None},
+    "broker.positions":    {"method":"GET", "path":"/api/v1/broker/positions","mode":None},
+    "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
+    "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},
+
+    # Diagnostics
+    "diag.health":         {"method":"GET","path":"/api/v1/diag/health","mode":None},
+},
+    "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
     # Stream
     "stream.start":    {"method":"POST","path":"/api/v1/market/stream/start","mode":"json"},
     "stream.status":   {"method":"GET", "path":"/api/v1/market/stream/status","mode":None},

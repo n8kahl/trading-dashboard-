@@ -13,6 +13,8 @@ OPS = {
     # Alerts
     "alerts.set":      {"method": "POST", "path": "/api/v1/alerts/set",               "mode": "json"},
     "alerts.list":     {"method": "GET",  "path": "/api/v1/alerts/list",              "mode": None},
+    "stream.track":  {"method":"POST","path":"/api/v1/stream/track","mode":None},
+    "stream.state":  {"method":"GET", "path":"/api/v1/stream/state","mode":None},
 
     # Broker (Tradier)
     "broker.account":      {"method": "GET",  "path": "/api/v1/broker/tradier/account","mode": None},

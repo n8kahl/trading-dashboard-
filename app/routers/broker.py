@@ -31,6 +31,11 @@ async def submit_order(body: dict = Body(...)):
         ords = await tradier.get_orders()
         await manager.broadcast_json({"type": "positions", "items": pos.get("items", [])})
         await manager.broadcast_json({"type": "orders", "items": ords.get("items", [])})
+        await manager.broadcast_json({
+            "type": "alert",
+            "level": "info",
+            "msg": f"Order submitted: {body.get('side')} {body.get('qty')} {body.get('symbol')} ({body.get('order_type')})",
+        })
     return res
 
 

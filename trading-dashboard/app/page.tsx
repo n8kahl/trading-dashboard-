@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/src/lib/api";
 import { connectWS } from "@/src/lib/ws";
-import { useWS } from "@/src/lib/store";
+import { useWS, usePrices, useRisk } from "@/src/lib/store";
 import { toast } from "sonner";
+import NewsPanel from "@/components/NewsPanel";
+import AlertsPanel from "@/components/AlertsPanel";
 
 type WatchlistResp = { ok: boolean; symbols: string[] };
 type Pick = {
@@ -29,6 +31,8 @@ export default function Page() {
   const [side, setSide] = useState<"call"|"put">("call");
   const [ticker, setTicker] = useState("SPY");
   const connected = useWS();
+  const prices = usePrices();
+  const risk = useRisk();
 
   // per-contract inputs: { [contractSymbol]: {entry, stop} }
   const [inputs, setInputs] = useState<Record<string, {entry:string; stop:string}>>({});
@@ -59,9 +63,20 @@ export default function Page() {
       apiPost("/api/v1/sizing/suggest", args)
   });
 
+  const analyze = useMutation({
+    mutationFn: async (symbol: string) => {
+      const body = { symbol, strategy_id: "auto" };
+      return apiPost("/api/v1/compose-and-analyze", body);
+    }
+  });
+
   const alertMut = useMutation({
-    mutationFn: (args: {symbol:string; level:number; note?:string}) =>
-      apiPost("/api/v1/alerts/set", args)
+    mutationFn: (args: {symbol:string; timeframe?: 'minute'|'day'; type: 'price_above'|'price_below'; value:number; threshold_pct?: number}) =>
+      apiPost("/api/v1/alerts/set", {
+        symbol: args.symbol,
+        timeframe: args.timeframe || 'minute',
+        condition: { type: args.type, value: args.value, threshold_pct: args.threshold_pct },
+      })
   });
 
   const setInput = (k: string, field: "entry"|"stop", v: string) =>
@@ -70,15 +85,23 @@ export default function Page() {
   const getInput = (k: string) => inputs[k] ?? { entry: "", stop: "" };
 
   useEffect(() => {
-    connectWS(window.location.origin);
+    connectWS();
   }, []);
 
   return (
     <main className="container">
       <h1 style={{marginBottom:12}}>Trading Assistant Dashboard</h1>
 
-      <div className="small" style={{marginBottom:8}}>
-        WS: {connected ? "Connected" : "Disconnected"}
+      <div className="small" style={{marginBottom:8, display:"flex", gap:12, alignItems:"center", flexWrap:"wrap"}}>
+        <span>WS: {connected ? "Connected" : "Disconnected"}</span>
+        <span>Price {ticker}: {prices?.[ticker] !== undefined ? Number(prices[ticker]).toFixed(2) : "—"}</span>
+        {risk ? (
+          <span>
+            Risk — daily R: {Number(risk?.daily_r ?? 0).toFixed(2)} · positions: {risk?.concurrent ?? 0}
+            {risk?.breach_daily_r ? " · DAILY BREACH" : ""}
+            {risk?.breach_concurrent ? " · CONCURRENT BREACH" : ""}
+          </span>
+        ) : null}
       </div>
 
       <section className="card" style={{marginBottom:12}}>
@@ -157,11 +180,15 @@ export default function Page() {
                       sizing.mutate({ symbol: ticker, side: side==="call" ? "long" : "short", risk_R: 1, per_unit_risk });
                     }}>Size It</button>
 
-                    <button className="secondary" onClick={()=>{
-                      // simple price alert at the entry level
-                      if(!entry){ toast("Enter an entry to set an alert level"); return; }
-                      alertMut.mutate({ symbol: ticker, level: Number(entry), note: `Alert near plan entry for ${ticker}` });
-                    }}>Set Alert</button>
+                    <InlineAlertCreator
+                      symbol={ticker}
+                      entry={entry}
+                      stop={stop}
+                      onCreate={(type, thresholdPct, level)=>{
+                        if(!entry){ toast("Enter an entry first"); return; }
+                        alertMut.mutate({ symbol: ticker, type, value: level, threshold_pct: thresholdPct });
+                      }}
+                    />
                   </div>
                 </div>
               );
@@ -196,8 +223,114 @@ export default function Page() {
                alertMut.data ? "✓ Alert set" : "—"}
             </div>
           </div>
+
+          <ConfidenceCard ticker={ticker} analyze={analyze} />
         </div>
       </section>
+
+      <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:12, marginTop:12}}>
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          {/* Reserved for future chart/workspace content */}
+        </div>
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          <NewsPanel symbols={(wl.data?.symbols ?? [ticker]).slice(0,7)} />
+          <AlertsPanel />
+        </div>
+      </div>
     </main>
+  );
+}
+
+// --- UI subcomponents ---
+
+function bandMeta(score?: number): { label: string; color: string } {
+  const s = typeof score === 'number' ? score : -1;
+  if (s >= 70) return { label: 'Favorable', color: '#16a34a' };
+  if (s >= 50) return { label: 'Mixed', color: '#eab308' };
+  if (s >= 0) return { label: 'Unfavorable', color: '#ef4444' };
+  return { label: '—', color: '#64748b' };
+}
+
+function ConfidenceCard({ ticker, analyze }: { ticker: string; analyze: any }) {
+  const data = analyze?.data;
+  const analysis = data?.analysis || null;
+  const score: number | undefined = analysis?.score;
+  const meta = bandMeta(score);
+  const comps: Record<string, number> = analysis?.components || {};
+  const rationale: string | undefined = analysis?.rationale;
+  const freshness = data?.context?.data_freshness_sec;
+
+  return (
+    <div className="card" style={{flex:"1 1 320px"}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <div style={{fontWeight:600, marginBottom:6}}>Confidence & Analysis</div>
+        <button className="secondary" onClick={() => analyze.mutate(ticker)} disabled={analyze.isPending}>Analyze</button>
+      </div>
+      <div className="small" style={{marginTop:6}}>
+        {analyze.isPending ? "Analyzing…" : analyze.isError ? String(analyze.error) : analysis ? (
+          <>
+            <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:8}}>
+              <div style={{display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.04)", border:"1px solid var(--border)", borderRadius:12, padding:"6px 10px"}}>
+                <div style={{fontSize:"1.2rem", fontWeight:800}}>{Math.round(score ?? 0)}</div>
+                <div style={{color: meta.color, fontWeight:700}}>{meta.label}</div>
+              </div>
+              <div style={{opacity:.75}}>freshness: {freshness !== undefined ? `${freshness}s` : '—'}</div>
+            </div>
+
+            <div className="chiprow" style={{marginBottom:8}}>
+              {Object.keys(comps).length ? (
+                Object.entries(comps).map(([k,v]) => (
+                  <span key={k} className="chip" title={k}>
+                    {k.replace(/_/g,' ')}: {v as number >= 0 ? `+${v}` : v}
+                  </span>
+                ))
+              ) : (
+                <span className="small">No components available.</span>
+              )}
+            </div>
+
+            {rationale ? (<div className="small" style={{whiteSpace:'pre-wrap'}}>{rationale}</div>) : null}
+          </>
+        ) : "—"}
+      </div>
+    </div>
+  );
+}
+
+function InlineAlertCreator({ symbol, entry, stop, onCreate }:{ symbol: string; entry: string; stop: string; onCreate: (type: 'price_above'|'price_below', thresholdPct: number|undefined, level: number)=>void }) {
+  const [atype, setAtype] = useState<'price_above'|'price_below'>('price_above');
+  const [thresh, setThresh] = useState<string>(""); // % optional
+
+  const computeLevel = () => {
+    const e = Number(entry);
+    const s = Number(stop);
+    if (!entry || !stop || Number.isNaN(e) || Number.isNaN(s)) return NaN;
+    const perR = Math.abs(e - s);
+    const pct = Number(thresh);
+    if (!Number.isNaN(pct) && pct > 0) {
+      const offs = (e * pct) / 100;
+      return atype === 'price_above' ? e + offs : e - offs;
+    }
+    return atype === 'price_above' ? e + perR : e - perR;
+  };
+
+  const level = computeLevel();
+
+  return (
+    <div style={{display:'inline-flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+      <select value={atype} onChange={(e)=> setAtype(e.target.value as any)}>
+        <option value="price_above">Alert above</option>
+        <option value="price_below">Alert below</option>
+      </select>
+      <input className="input" placeholder="threshold % (opt)" style={{width:120}}
+        value={thresh} onChange={(e)=> setThresh(e.target.value)} inputMode="decimal" />
+      <button className="secondary" onClick={()=>{
+        if (!entry) { toast("Enter an entry first"); return; }
+        const lvl = computeLevel();
+        if (!Number.isFinite(lvl)) { toast("Provide stop or threshold %"); return; }
+        const pct = thresh ? Number(thresh) : undefined;
+        onCreate(atype, pct, Number(lvl.toFixed(4)));
+      }}>Set Alert {Number.isFinite(level) ? `@ ${level.toFixed(2)}` : ''}</button>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import QueryProvider from "@/src/lib/query-provider";
+import BootSnapshot from "@/src/components/BootSnapshot";
 import "./globals.css";
 import { Toaster } from "sonner";
 
@@ -13,7 +14,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/admin">Admin</a>
         </div>
         <div className="container">
-          <QueryProvider>{children}</QueryProvider>
+          <QueryProvider>
+            <BootSnapshot />
+            {children}
+          </QueryProvider>
           <Toaster position="top-right" />
         </div>
       </body>

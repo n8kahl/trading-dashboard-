@@ -1,0 +1,72 @@
+name: Vercel Deploy (Preview & Production)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Pull Vercel Env (preview)
+        working-directory: trading-dashboard
+        run: vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+      - name: Build (preview)
+        working-directory: trading-dashboard
+        run: vercel build --token=$VERCEL_TOKEN
+      - name: Deploy (preview)
+        id: deploy
+        working-directory: trading-dashboard
+        run: |
+          url=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
+          echo "url=$url" >> $GITHUB_OUTPUT
+      - name: Comment PR with Preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.DEPLOY_URL || '${{ steps.deploy.outputs.url }}';
+            if (!url) { core.warning('No preview URL found'); return; }
+            await github.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Vercel Preview: ${url}`,
+            });
+
+  production:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Pull Vercel Env (production)
+        working-directory: trading-dashboard
+        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+      - name: Build (production)
+        working-directory: trading-dashboard
+        run: vercel build --prod --token=$VERCEL_TOKEN
+      - name: Deploy (production)
+        working-directory: trading-dashboard
+        run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+

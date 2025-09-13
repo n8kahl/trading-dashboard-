@@ -3,6 +3,7 @@
 from .base import Base
 from .misc import Alert, AlertTrigger, JournalEntry, WatchlistItem
 from .paper import PaperFill, PaperPosition, PaperTrade
+from .settings import AppSettings  # ensure table is registered
 
 __all__ = [
     "Base",
@@ -13,4 +14,5 @@ __all__ = [
     "AlertTrigger",
     "WatchlistItem",
     "JournalEntry",
+    "AppSettings",
 ]

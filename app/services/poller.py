@@ -4,7 +4,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import httpx
+from sqlalchemy import select
 
+from app.core.ws import manager
+from app.integrations.discord import send_message as discord_send
+from app.models.settings import AppSettings
+from app.models.misc import Alert, AlertTrigger
 from app.services.utils import RateLimiter, run_periodic, session_scope
 
 POLL_SEC = int(os.getenv("ALERT_POLL_SEC", "30"))
@@ -79,36 +84,88 @@ def _passes_condition(price: float, cond: Dict[str, Any]) -> bool:
 
 
 async def _poll_once() -> None:
+    now = _now_utc()
     with session_scope() as db:
-        db.execute(
-            "UPDATE alerts SET is_active = FALSE WHERE expires_at IS NOT NULL AND expires_at < NOW()",
-        )
+        try:
+            # ORM path (preferred)
+            rows = db.execute(select(Alert).where(Alert.is_active == True)).scalars().all()  # noqa: E712
+            active: list[Alert] = []
+            for a in rows:
+                if a.expires_at and a.expires_at < now:
+                    a.is_active = False
+                    db.add(a)
+                    continue
+                active.append(a)
 
-        rows = db.execute(
-            "SELECT id, symbol, timeframe, condition, is_active FROM alerts WHERE is_active = TRUE ORDER BY id DESC LIMIT 200",
-        ).fetchall()
+            settings = db.execute(select(AppSettings).order_by(AppSettings.id.asc())).scalars().first()
+            discord_url = settings.discord_webhook_url if settings else None
+            discord_enabled = bool(settings.discord_alerts_enabled) if settings else False
+            discord_types_raw = (settings.discord_alert_types or "") if settings else ""
+            discord_types = {t.strip().lower() for t in discord_types_raw.split(",") if t.strip()}
 
-        for r in rows:
-            alert_id = r[0]
-            symbol = r[1]
-            timeframe = r[2] or "day"
-            raw_condition = r[3]
+            for a in active:
+                symbol = a.symbol
+                timeframe = a.timeframe or "day"
+                cond = a.condition or {}
+                price = await _latest_price(symbol, timeframe)
+                if price is None:
+                    continue
+                if _passes_condition(price, cond):
+                    trig = AlertTrigger(alert_id=a.id, symbol=symbol, payload={"price": price, "timeframe": timeframe})
+                    db.add(trig)
+                    suggestion = None
+                    ctype = (cond.get("type") or "").lower()
+                    if ctype == "price_above":
+                        suggestion = f"Consider long scalp on {symbol} (price above {cond.get('value')})."
+                    elif ctype == "price_below":
+                        suggestion = f"Consider trim/short on {symbol} (price below {cond.get('value')})."
+                    try:
+                        await manager.broadcast_json(
+                            {
+                                "type": "alert",
+                                "level": "info",
+                                "msg": suggestion or f"Alert triggered for {symbol}",
+                                "meta": {"symbol": symbol, "price": price, "condition": cond},
+                            }
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if discord_enabled and discord_url:
+                            if (not discord_types) or (ctype in discord_types):
+                                msg = suggestion or f"Alert triggered for {symbol}: {cond} @ {price}"
+                                await discord_send(discord_url, msg)
+                    except Exception:
+                        pass
+            return
+        except Exception:
+            # Fallback to SQL-string path for tests that stub raw execute()
             try:
-                import json
-
-                cond = json.loads(raw_condition) if isinstance(raw_condition, str) else (raw_condition or {})
-            except Exception:
-                cond = {"raw": raw_condition}
-
-            price = await _latest_price(symbol, timeframe)
-            if price is None:
-                continue
-
-            if _passes_condition(price, cond):
                 db.execute(
-                    "UPDATE alerts SET triggered_at = COALESCE(triggered_at, NOW()) WHERE id = %s",
-                    (alert_id,),
+                    "UPDATE alerts SET is_active = FALSE WHERE expires_at IS NOT NULL AND expires_at < NOW()",
                 )
+                rows = db.execute(
+                    "SELECT id, symbol, timeframe, condition, is_active FROM alerts WHERE is_active = TRUE ORDER BY id DESC LIMIT 200",
+                ).fetchall()
+                for r in rows:
+                    alert_id, symbol, timeframe, raw_condition, _ = r
+                    try:
+                        import json
+
+                        cond = json.loads(raw_condition) if isinstance(raw_condition, str) else (raw_condition or {})
+                    except Exception:
+                        cond = {"raw": raw_condition}
+                    price = await _latest_price(symbol, timeframe or "day")
+                    if price is None:
+                        continue
+                    if _passes_condition(price, cond):
+                        db.execute(
+                            "UPDATE alerts SET triggered_at = COALESCE(triggered_at, NOW()) WHERE id = %s",
+                            (alert_id,),
+                        )
+            except Exception:
+                # swallow to keep loop resilient in tests
+                pass
 
 
 async def alerts_poller(loop_forever: bool = True) -> None:

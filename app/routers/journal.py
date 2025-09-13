@@ -1,45 +1,111 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, desc, select
 
-from app.models import JournalEntry
-from app.services.db import get_db
+from app.db import db_session
+from app.models.misc import JournalEntry
+
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
 
-@router.get("/health")
-def health():
-    return {"ok": True, "router": "journal"}
-
-
-class JournalReq(BaseModel):
-    symbol: str
+class JournalCreate(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=16)
     r: Optional[float] = None
-    side: Optional[str] = None
+    side: Optional[str] = Field(None, pattern=r"^(long|short|CALL|PUT)$", description="long/short or CALL/PUT")
     notes: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
 
 
-@router.post("/trade")
-def journal_trade(req: JournalReq, db: Session = Depends(get_db)):
-    row = JournalEntry(symbol=req.symbol.upper(), r=req.r, side=req.side, notes=req.notes, meta=req.meta)
-    db.add(row)
-    db.commit()
-    return {"ok": True, "id": row.id}
+class JournalUpdate(BaseModel):
+    r: Optional[float] = None
+    side: Optional[str] = Field(None, pattern=r"^(long|short|CALL|PUT)$")
+    notes: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
 
 
-@router.get("/summary")
-def journal_summary(db: Session = Depends(get_db)):
-    tot = db.execute(select(func.count()).select_from(JournalEntry)).scalar_one()
-    win = db.execute(
-        select(func.count()).select_from(JournalEntry).where(JournalEntry.r is not None).where(JournalEntry.r > 0)
-    ).scalar_one()
-    rsum = db.execute(select(func.coalesce(func.sum(JournalEntry.r), 0.0))).scalar_one()
-    win_rate = (win / tot) if tot else None
-    return {"ok": True, "summary": {"trades": tot, "win_rate": win_rate, "total_R": rsum}}
+@router.get("/list")
+def list_entries(
+    symbol: Optional[str] = Query(None),
+    since: Optional[str] = Query(None, description="ISO timestamp"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        stmt = select(JournalEntry)
+        if symbol:
+            stmt = stmt.where(JournalEntry.symbol == symbol.upper())
+        if since:
+            try:
+                ts = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                stmt = stmt.where(JournalEntry.created_at >= ts)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid since timestamp")
+        stmt = stmt.order_by(desc(JournalEntry.created_at)).limit(limit)
+        rows = session.execute(stmt).scalars().all()
+        items = [
+            {
+                "id": r.id,
+                "symbol": r.symbol,
+                "r": r.r,
+                "side": r.side,
+                "notes": r.notes,
+                "meta": r.meta,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+        return {"ok": True, "items": items}
+
+
+@router.post("/create")
+def create_entry(body: JournalCreate):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = JournalEntry(
+            symbol=body.symbol.upper(),
+            r=body.r,
+            side=body.side,
+            notes=body.notes,
+            meta=body.meta,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return {"ok": True, "id": row.id}
+
+
+@router.post("/update/{entry_id}")
+def update_entry(entry_id: int, body: JournalUpdate):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = session.get(JournalEntry, entry_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        for k, v in body.model_dump(exclude_unset=True).items():
+            setattr(row, k, v)
+        session.add(row)
+        session.commit()
+        return {"ok": True}
+
+
+@router.post("/delete/{entry_id}")
+def delete_entry(entry_id: int):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = session.get(JournalEntry, entry_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        session.delete(row)
+        session.commit()
+        return {"ok": True}
+

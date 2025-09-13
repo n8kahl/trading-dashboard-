@@ -19,4 +19,5 @@ EXPOSE 8000
 
 # Start FastAPI (adjust module path if your app entrypoint differs)
 
-CMD sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
+
+CMD sh -c 'echo PORT=8000; uvicorn app.main:app --host 0.0.0.0 --port 8000'

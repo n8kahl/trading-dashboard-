@@ -1,19 +1,19 @@
-import os
-import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import httpx
+
+# Import the running FastAPI app so httpx can call it in-process
+try:
+    from app.main import app as _app
+except Exception as e:
+    _app = None
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
-# Resolve base once; Railway provides PORT (default 8080)
-_PORT = os.getenv("PORT", "8080")
-_BASE = f"http://127.0.0.1:{_PORT}"
-
+# Map assistant ops to your existing internal routes
 OP_MAP = {
-    # stream ops you already have
     "stream.track": {"method": "POST", "path": "/api/v1/stream/track"},
     "stream.state": {"method": "GET",  "path": "/api/v1/stream/quotes"},
-    # diagnostics
     "diag.health":  {"method": "GET",  "path": "/api/v1/diag/health"},
 }
 
@@ -23,37 +23,33 @@ class ExecBody(BaseModel):
 
 @router.get("/actions")
 async def assistant_actions():
-    # keep it simple; list only what we handle here
-    return {"ops": sorted(OP_MAP.keys())}
+    return {"ok": True, "actions": [{"op": k} for k in sorted(OP_MAP.keys())]}
 
 @router.post("/exec")
 async def assistant_exec(body: ExecBody):
-    spec = OP_MAP.get(body.op)
-    if not spec:
-        raise HTTPException(status_code=400, detail={
-            "ok": False, "error": "unknown_op", "detail": body.op, "op": body.op
-        })
+    if body.op not in OP_MAP:
+        raise HTTPException(status_code=400, detail={"ok": False, "error": "unknown_op", "detail": body.op, "op": body.op})
 
+    if _app is None:
+        raise HTTPException(status_code=500, detail={"ok": False, "error": "app_not_loaded"})
+
+    spec = OP_MAP[body.op]
     method, path = spec["method"], spec["path"]
-    url = _BASE + path  # <<<<<< IMPORTANT: absolute URL for httpx
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            if method == "GET":
-                r = await client.get(url, params=(body.args or {}))
-            elif method == "POST":
-                r = await client.post(url, json=(body.args or {}))
-            elif method == "DELETE":
-                r = await client.delete(url, json=(body.args or {}))
-            elif method == "PATCH":
-                r = await client.patch(url, json=(body.args or {}))
-            elif method == "PUT":
-                r = await client.put(url, json=(body.args or {}))
-            else:
-                raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_method", "detail": method})
-    except httpx.RequestError as e:
-        # upstream didn’t respond or connection failed
-        raise HTTPException(status_code=502, detail={"ok": False, "error": "upstream_error", "detail": str(e)})
+    # In-process ASGI call: no network, no PORT, no 502s
+    async with httpx.AsyncClient(app=_app, base_url="http://internal") as client:
+        if method == "GET":
+            r = await client.get(path, params=(body.args or {}))
+        elif method == "POST":
+            r = await client.post(path, json=(body.args or {}))
+        elif method == "DELETE":
+            r = await client.delete(path, json=(body.args or {}))
+        elif method == "PATCH":
+            r = await client.patch(path, json=(body.args or {}))
+        elif method == "PUT":
+            r = await client.put(path, json=(body.args or {}))
+        else:
+            raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_method", "detail": method})
 
     ct = (r.headers.get("content-type") or "")
     if "application/json" in ct:

@@ -1,145 +1,46 @@
-# Progress Log — Frontend Live Integration
+# Progress — 2025-09-13
 
-Date: 2025-09-13
+This document summarizes current implementation status, test coverage, and deployment notes. Updated at the start/end of each session.
 
-Links:
-- Vercel (frontend): https://trading-dashboard-ten-kappa.vercel.app/
-- Railway (backend): https://web-production-a9084.up.railway.app/
+Summary
+- Core backend and dashboard are live; alerts, sizing, planning, and broker sandbox flows are implemented.
+- Coach can fetch options data, validate plans, suggest sizing, place (sandbox) orders, set alerts, create journal entries, and compose+analyze for confidence.
+- All tests pass locally (43 passed).
+- Vercel deployment configured; awaiting environment variables and live domain confirmation.
 
-## Summary
+Backend
+- FastAPI app with lifespan/CORS/health/ready: `app/main.py`
+- WebSocket manager + risk engine (broadcasts risk state + alerts): `app/core/ws.py`, `app/core/risk.py`
+- Alerts CRUD (list/create/update/delete) + poller + WS fan‑out + optional Discord forwarding: `app/routers/alerts.py`, `app/services/poller.py`, `app/integrations/discord.py`
+- Planning `/plan/validate` returns per-unit risk, RR bands (0.5R/1R/2R), targets, notes, and NL summary: `app/routers/plan.py`
+- Sizing `/sizing/suggest` with equity/buying power overrides and sandbox notes: `app/routers/sizing.py`
+- Broker (Tradier sandbox) account/preview/place/cancel: `app/routers/broker_tradier.py`, `app/routers/broker.py`
+- Compose+Analyze (context + scoring + plan + risk): `app/routers/compose_analyze.py`, `app/services/compose.py`, `app/services/scoring_engine.py`
+- Settings + Journal CRUD (DB): `app/routers/settings.py`, `app/routers/journal.py`, models in `app/models/*`
 
-Aligned the Next.js dashboard to the FastAPI backend using a local API proxy and environment‑derived WebSocket connection. This removes CORS friction, passes an optional API key automatically, and enables a live Analyze panel that calls the backend scoring/analysis route.
+Coach & Tools
+- ChatData integration: `app/integrations/chatdata.py`
+- Assistant tools: options.pick/expirations/chain; plan.validate; sizing.suggest; broker.place_order; alerts.set; journal.create; compose.analyze.
+- System prompt updated to encourage using compose.analyze for confidence (0–100) + terse rationale: `app/assistant/system_prompt.md`
 
-All backend tests pass (43). Changes are backward‑compatible and gated by environment variables.
+Frontend (Next.js)
+- Dashboard with WS live updates (price/orders/positions/risk/alerts) and proxy to backend: `trading-dashboard/app/page.tsx`, `trading-dashboard/app/api/proxy/route.ts`
+- Coach chat page wired to backend: `trading-dashboard/app/coach/page.tsx`
+- Alerts, Journal, Admin pages present: `trading-dashboard/app/alerts/page.tsx`, `trading-dashboard/app/journal/page.tsx`, `trading-dashboard/app/admin/page.tsx`
+- Positions/Orders pages: `trading-dashboard/app/positions/page.tsx`, `trading-dashboard/app/orders/page.tsx`
 
-## Implemented
+Tests
+- 43 passed, 0 failed (pytest). See `tests/`.
 
-- Next.js API proxy to backend
-  - `trading-dashboard/app/api/proxy/route.ts`: Forwards GET/POST to `NEXT_PUBLIC_API_BASE` and injects `X-API-Key` when `NEXT_PUBLIC_API_KEY` is set.
-- Frontend API/Coach use proxy
-  - `trading-dashboard/src/lib/api.ts`: `apiGet/apiPost` route through `/api/proxy?path=…`.
-  - `trading-dashboard/src/lib/coach.ts`: `coachChat` routed via proxy.
-- WebSocket client derives URL and appends API key when present
-  - `trading-dashboard/src/lib/ws.ts`: Builds URL from `NEXT_PUBLIC_WS_BASE` or `NEXT_PUBLIC_API_BASE`; adds `?api_key=…`.
-  - `trading-dashboard/app/page.tsx`: calls `connectWS()` without origin.
-- Backend CORS is env‑driven; includes Vercel and Railway origins by default
-  - `app/main.py`: reads `ALLOWED_ORIGINS` comma‑separated; defaults cover Vercel + Railway + localhost.
-- Confidence/Analysis route exposed and used
-  - `app/main.py`: mounts `app.routers.compose_analyze`.
-  - `trading-dashboard/app/page.tsx`: Adds an Analyze card that calls `/api/v1/compose-and-analyze`.
+Deployment (Vercel)
+- Config: `vercel.json` builds `trading-dashboard/`; see `docs/DEPLOYMENT.md` for checklist.
+- Required env on Vercel: `NEXT_PUBLIC_API_BASE` (backend URL), optional `NEXT_PUBLIC_API_KEY`, `NEXT_PUBLIC_WS_BASE`.
+- CORS: ensure backend `ALLOWED_ORIGINS` allows your Vercel domain.
+- Status: probing default app domains returned 404; awaiting the actual live URL after env setup.
 
-## Environment
+Next Implementation Targets
+- Coach: include compose.analyze confidence in replies when discussing a symbol (ensure single call/hop and clean formatting).
+- Execution journaling: attach broker previews/placements to journal.
+- Risk → Discord: forward breach alerts when enabled in Settings.
+- Screener ranking: replace placeholder with simple ranking using scoring engine.
 
-Set on Vercel:
-- `NEXT_PUBLIC_API_BASE=https://web-production-a9084.up.railway.app`
-- `NEXT_PUBLIC_WS_BASE=wss://web-production-a9084.up.railway.app/ws` (optional)
-- `NEXT_PUBLIC_API_KEY=<backend API_KEY if set>`
-
-Set on Railway:
-- `ALLOWED_ORIGINS=https://trading-dashboard-ten-kappa.vercel.app,http://localhost:3000`
-- `ENABLE_BACKGROUND_LOOPS=1`
-- Data providers/broker keys as available: `POLYGON_API_KEY`, `TRADIER_ACCESS_TOKEN`, `TRADIER_ACCOUNT_ID`, `TRADIER_ENV`, `CHATDATA_*`
-
-## Tests
-
-`pytest` → 43 passed, no failures (warnings only).
-
-## Open PRs — Review Notes
-
-- PR #36: “Document fail_open usage” — Safe to merge.
-  - Removes an unused helper and adds usage docs for `fail_open`.
-  - No runtime behavior changes expected; backend tests should stay green.
-
-## Next Steps
-
-See `docs/UX_PLAN.md` for detailed UX/UI flow, feature review, and implementation plan focused on a responsible, production‑ready web app.
-
----
-
-## Update — UI Components (Risk, Confidence, Inline Alerts)
-
-Date: 2025-09-13
-
-Implemented first-pass live UI pieces aligned to the plan:
-
-- Risk banner in status strip
-  - Shows `daily_r`, concurrent positions, and breach flags from WS `risk` events.
-  - File: `trading-dashboard/app/page.tsx`
-
-- Confidence card (Analyze)
-  - Score band chip with label (Unfavorable/Mixed/Favorable), component chips (ATR/VWAP/EMAs/Flow/Liquidity), and freshness seconds.
-  - Calls `/api/v1/compose-and-analyze` via the proxy.
-  - File: `trading-dashboard/app/page.tsx`
-
-- Inline Create Alert control
-  - Defaults to ±1R from entry; optional threshold % to offset from entry price.
-  - Posts to `/api/v1/alerts/set` with type `price_above|price_below` and `threshold_pct`.
-  - File: `trading-dashboard/app/page.tsx`
-
-Branch and PR
-- Branch: `feat/dashboard-live-confidence-discord`
-- Open PR: https://github.com/n8kahl/trading-dashboard-/pull/new/feat/dashboard-live-confidence-discord
-
-Pick-up Next
-- Confidence UI polish: colors, tooltips for components, “why” rationale text.
-- Alerts page enhancements: types/timeframe/expiry controls, live updates, Discord enablement hint. [Done]
-- Initial snapshot fetch for positions/orders; basic readonly lists.
-- Style Risk banner with severity colors and link to Settings.
-
-## Update — Alerts Page Enhancements
-
-Date: 2025-09-13
-
-- Rewrote Alerts page to align with backend API (`/api/v1/alerts/list|set|delete/:id`).
-- Added create form fields: symbol, type (above/below), timeframe (minute/day), level, optional threshold %, optional expiry ISO.
-- Added table view of active alerts with delete action.
-- Added Discord enablement hint.
-- File: `trading-dashboard/app/alerts/page.tsx`
-
-## Update — Auto PR + Auto‑Merge Workflow
-
-Date: 2025-09-13
-
-- Added workflow to automatically open a PR from feature branches to `main` on push, label it `automerge`, and enable GitHub’s auto‑merge (squash) using the repository `GITHUB_TOKEN`.
-- File: `.github/workflows/auto-pr-automerge.yml`
-- Behavior:
-  - On push to branches matching `feat/**`, `fix/**`, `chore/**`, `refactor/**` (and the current feature branch), the workflow:
-    1) Creates or finds an open PR to `main`.
-    2) Adds labels `automerge` and `codex` (best effort).
-    3) Enables auto‑merge (squash). Merge will complete automatically once required checks pass and branch protection conditions are satisfied.
-- Note: Respects your branch protection. If approvals are required, auto‑merge waits for them.
-
-## Update — Initial Snapshot on UI Boot
-
-Date: 2025-09-13
-
-- Added client boot hook to fetch `/api/v1/stream/state` once and seed positions/orders/risk before WS updates arrive.
-- Files:
-  - `trading-dashboard/src/components/BootSnapshot.tsx`
-  - `trading-dashboard/app/layout.tsx` (renders BootSnapshot inside QueryProvider)
-- Benefit: Positions/Orders pages show server snapshot immediately; then WS keeps them fresh.
-
-## Update — Vercel Monorepo Config
-
-Date: 2025-09-13
-
-- Added root `vercel.json` to direct Vercel to build and serve the Next.js app from `trading-dashboard/` in a monorepo.
-- File: `vercel.json`
-- Note: You still need to set Vercel env vars (see `trading-dashboard/.env.example`) and ensure the project’s Root Directory is the repository root (the config routes to the app subfolder).
-
-## Update — CI Deployments to Vercel (Preview & Production)
-
-Date: 2025-09-13
-
-- Added GitHub Actions workflow to build and deploy the Next.js app to Vercel using the Vercel CLI.
-- File: `.github/workflows/vercel-deploy.yml`
-- Behavior:
-  - On PRs: builds a Preview and comments the URL on the PR.
-  - On pushes to `main`: builds and deploys to Production.
-- Required repo secrets:
-  - `VERCEL_TOKEN` — personal or team token from Vercel
-  - `VERCEL_ORG_ID` — Organization ID (from Vercel → Settings → General → IDs)
-  - `VERCEL_PROJECT_ID` — Project ID (from Vercel Project → Settings → General → IDs)
-- Note: The project can also use the Vercel GitHub app; this workflow is a fallback/explicit pipeline with monorepo awareness (`trading-dashboard/`).
-
-Triggered CI to validate Vercel Preview deployment.

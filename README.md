@@ -21,6 +21,8 @@ Your project is live at:
 
 **[https://vercel.com/n8kahls-projects/v0-tradingassistantmcpreadymain1](https://vercel.com/n8kahls-projects/v0-tradingassistantmcpreadymain1)**
 
+See `docs/DEPLOYMENT.md` for a status checklist and how to verify the Vercel deployment (including required environment vars and WS notes).
+
 ## Build your app
 
 Continue building your app on:
@@ -64,6 +66,10 @@ This app targets a day‑trader command center: intuitive, informative, and prof
 - Roadmap and milestones: see `docs/ROADMAP.md`
 
 Coach responses and trade suggestions include confidence with a concise component breakdown based on real data (no mocks). The assistant’s behavior adheres to the above design.
+
+Progress is tracked in `docs/ROADMAP.md`. At the start of each session, review and update it.
+
+See `docs/PROGRESS.md` for a concise, session-by-session summary and `docs/DEPLOYMENT.md` for deployment status and checks.
 
 ### Alerts Polling
 

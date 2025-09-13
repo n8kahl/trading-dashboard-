@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Run this lightweight proxy on the Edge runtime to minimize
+// Serverless Function bundle size and avoid the 250 MB limit.
+export const runtime = "edge";
+
 // Proxies requests to the backend API to avoid CORS in the browser.
 // Reads base URL and optional API key from env.
 
@@ -59,4 +63,3 @@ export async function POST(req: NextRequest) {
   const buf = await res.arrayBuffer();
   return new NextResponse(buf, { status: res.status, headers: res.headers });
 }
-

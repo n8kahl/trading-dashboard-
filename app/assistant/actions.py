@@ -390,6 +390,45 @@ def _h_broker_place_order(**kw) -> Dict[str, Any]:
     return _http_json("POST", "/api/v1/broker/tradier/order", body=args)
 
 
+# --- Alerts.set tool ---
+class AlertSetArgs(BaseModel):
+    symbol: str
+    type: str = Field(pattern=r"^(price_above|price_below)$")
+    value: float
+    threshold_pct: float | None = None
+    timeframe: str | None = Field(default="day", pattern=r"^(minute|day)$")
+    expires_at: str | None = None  # ISO string
+
+
+def _h_alerts_set(**kw) -> Dict[str, Any]:
+    args = AlertSetArgs(**kw).model_dump()
+    body = {
+        "symbol": args["symbol"],
+        "timeframe": args.get("timeframe") or "day",
+        "condition": {
+            "type": args["type"],
+            "value": args["value"],
+            **({"threshold_pct": args["threshold_pct"]} if args.get("threshold_pct") is not None else {}),
+        },
+        **({"expires_at": args["expires_at"]} if args.get("expires_at") else {}),
+    }
+    return _http_json("POST", "/api/v1/alerts/set", body=body)
+
+
+# --- Journal.create tool ---
+class JournalCreateArgs(BaseModel):
+    symbol: str
+    r: float | None = None
+    side: str | None = Field(default=None, pattern=r"^(long|short|CALL|PUT)$")
+    notes: str | None = None
+    meta: Dict[str, Any] | None = None
+
+
+def _h_journal_create(**kw) -> Dict[str, Any]:
+    args = JournalCreateArgs(**kw).model_dump()
+    return _http_json("POST", "/api/v1/journal/create", body=args)
+
+
 # Registry for new ops (independent of ActionSpec)
 _ASSISTANT_EXTRA_OPS: Dict[str, Dict[str, Any]] = {
     "plan.validate": {
@@ -422,6 +461,43 @@ _ASSISTANT_EXTRA_OPS: Dict[str, Dict[str, Any]] = {
         "args_model": PlaceOrderArgs,
         "handler": _h_broker_place_order,
     },
+    "alerts.set": {
+        "title": "Set a price alert",
+        "description": "Create an alert with optional threshold and expiry",
+        "args_model": AlertSetArgs,
+        "handler": _h_alerts_set,
+    },
+    "journal.create": {
+        "title": "Create journal entry",
+        "description": "Add a note or result to trade journal",
+        "args_model": JournalCreateArgs,
+        "handler": _h_journal_create,
+    },
+}
+
+
+# --- Compose and Analyze tool ---
+class ComposeAnalyzeArgs(BaseModel):
+    symbol: str
+    date: Optional[str] = None  # ISO date (YYYY-MM-DD)
+    strategy_id: Optional[str] = None  # e.g., auto, vwap_bounce
+    overrides: Optional[Dict[str, Any]] = None
+
+
+def _h_compose_analyze(**kw) -> Dict[str, Any]:
+    args = ComposeAnalyzeArgs(**kw).model_dump()
+    # Default strategy to 'auto' for best UX
+    if not args.get("strategy_id"):
+        args["strategy_id"] = "auto"
+    return _http_json("POST", "/api/v1/compose-and-analyze", body=args)
+
+
+# Register after definition to keep grouping tidy
+_ASSISTANT_EXTRA_OPS["compose.analyze"] = {
+    "title": "Compose intraday context and score",
+    "description": "Build context from Polygon and return strategy scores, plan, and risk",
+    "args_model": ComposeAnalyzeArgs,
+    "handler": _h_compose_analyze,
 }
 
 

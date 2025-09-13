@@ -21,6 +21,13 @@ class AlertBody(BaseModel):
     is_active: Optional[bool] = True
 
 
+class AlertUpdate(BaseModel):
+    timeframe: Optional[str] = Field(None, pattern=r"^(minute|day)$")
+    condition: Optional[Dict[str, Any]] = None
+    expires_at: Optional[datetime] = None
+    is_active: Optional[bool] = None
+
+
 @router.get("/list")
 def alerts_list():
     with db_session() as session:
@@ -70,5 +77,27 @@ def alerts_delete(alert_id: int):
         if not row:
             raise HTTPException(status_code=404, detail="Not found")
         session.delete(row)
+        session.commit()
+        return {"ok": True}
+
+
+@router.post("/update/{alert_id}")
+def alerts_update(alert_id: int, body: AlertUpdate):
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = session.get(Alert, alert_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+        data = body.model_dump(exclude_unset=True)
+        if "timeframe" in data and data["timeframe"] is not None:
+            row.timeframe = data["timeframe"]
+        if "condition" in data and data["condition"] is not None:
+            row.condition = data["condition"]
+        if "expires_at" in data:
+            row.expires_at = data["expires_at"]
+        if "is_active" in data and data["is_active"] is not None:
+            row.is_active = bool(data["is_active"])  # explicit cast
+        session.add(row)
         session.commit()
         return {"ok": True}

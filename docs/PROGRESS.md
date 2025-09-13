@@ -118,3 +118,11 @@ Date: 2025-09-13
   - `trading-dashboard/src/components/BootSnapshot.tsx`
   - `trading-dashboard/app/layout.tsx` (renders BootSnapshot inside QueryProvider)
 - Benefit: Positions/Orders pages show server snapshot immediately; then WS keeps them fresh.
+
+## Update — Vercel Monorepo Config
+
+Date: 2025-09-13
+
+- Added root `vercel.json` to direct Vercel to build and serve the Next.js app from `trading-dashboard/` in a monorepo.
+- File: `vercel.json`
+- Note: You still need to set Vercel env vars (see `trading-dashboard/.env.example`) and ensure the project’s Root Directory is the repository root (the config routes to the app subfolder).

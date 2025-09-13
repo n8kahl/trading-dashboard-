@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "trading-dashboard/package.json", "use": "@vercel/next" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "trading-dashboard/$1" }
+  ]
+}
+

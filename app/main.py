@@ -20,6 +20,8 @@ async def lifespan(app: FastAPI):
 
 from app.routers import market_stream
 
+from app.routers import stream_snapshot
+
 app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
 
 # ---- safely mount routers (won't crash app if a router has issues) ----
@@ -172,3 +174,6 @@ def _start_stream():
     stream_state.start()
 
 # mount /stream/* compatibility routes
+
+# stream snapshot route
+app.include_router(stream_snapshot.router)

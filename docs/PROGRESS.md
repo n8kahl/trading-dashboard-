@@ -1,12 +1,14 @@
 # Progress — 2025-09-13
 
-This document summarizes current implementation status, test coverage, and deployment notes. Updated at the start/end of each session.
+Updated: 2025-09-13 20:20 UTC
+
+This document summarizes current implementation status, test coverage, and deployment notes. It is updated at the start/end of each session.
 
 Summary
 - Core backend and dashboard are live; alerts, sizing, planning, and broker sandbox flows are implemented.
 - Coach can fetch options data, validate plans, suggest sizing, place (sandbox) orders, set alerts, create journal entries, and compose+analyze for confidence.
 - All tests pass locally (43 passed).
-- Vercel deployment configured; awaiting environment variables and live domain confirmation.
+- Vercel deployment configured; env set. Latest prod deploy previously errored on bundle size; mitigations shipped and a redeploy is required.
 
 Backend
 - FastAPI app with lifespan/CORS/health/ready: `app/main.py`
@@ -25,6 +27,7 @@ Coach & Tools
 
 Frontend (Next.js)
 - Dashboard with WS live updates (price/orders/positions/risk/alerts) and proxy to backend: `trading-dashboard/app/page.tsx`, `trading-dashboard/app/api/proxy/route.ts`
+- Proxy now runs on Edge runtime to avoid 250 MB Serverless limit: `export const runtime = "edge"`.
 - Coach chat page wired to backend: `trading-dashboard/app/coach/page.tsx`
 - Alerts, Journal, Admin pages present: `trading-dashboard/app/alerts/page.tsx`, `trading-dashboard/app/journal/page.tsx`, `trading-dashboard/app/admin/page.tsx`
 - Positions/Orders pages: `trading-dashboard/app/positions/page.tsx`, `trading-dashboard/app/orders/page.tsx`
@@ -33,10 +36,12 @@ Tests
 - 43 passed, 0 failed (pytest). See `tests/`.
 
 Deployment (Vercel)
-- Config: `vercel.json` builds `trading-dashboard/`; see `docs/DEPLOYMENT.md` for checklist.
+- Config: `vercel.json` builds the `trading-dashboard/` app with Next.js.
 - Required env on Vercel: `NEXT_PUBLIC_API_BASE` (backend URL), optional `NEXT_PUBLIC_API_KEY`, `NEXT_PUBLIC_WS_BASE`.
-- CORS: ensure backend `ALLOWED_ORIGINS` allows your Vercel domain.
-- Status: probing default app domains returned 404; awaiting the actual live URL after env setup.
+- Bundle-size mitigations:
+  - `app/api/proxy` on Edge runtime.
+  - `next.config.cjs` excludes tests/docs/maps from serverless tracing; image optimizer disabled.
+- Status: Project `trading-dashboard` found via API; latest prod deploy = ERROR. Push to GitHub will trigger CI; if production branch is `main`, merge or redeploy from Vercel UI.
 
 Next Implementation Targets
 - Coach: include compose.analyze confidence in replies when discussing a symbol (ensure single call/hop and clean formatting).
@@ -44,3 +49,6 @@ Next Implementation Targets
 - Risk → Discord: forward breach alerts when enabled in Settings.
 - Screener ranking: replace placeholder with simple ranking using scoring engine.
 
+Notes for Ops
+- If Vercel deploy still reports 250 MB function size, confirm all API routes are Edge (only the proxy exists) and that the project builds from `trading-dashboard/`.
+- Verify domain attachment in Vercel Settings → Domains. Default alias appears as `trading-dashboard-n8kahls-projects.vercel.app`.

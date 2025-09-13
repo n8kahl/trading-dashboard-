@@ -82,6 +82,16 @@ Branch and PR
 
 Pick-up Next
 - Confidence UI polish: colors, tooltips for components, “why” rationale text.
-- Alerts page enhancements: types/timeframe/expiry controls, live updates, Discord enablement hint.
+- Alerts page enhancements: types/timeframe/expiry controls, live updates, Discord enablement hint. [Done]
 - Initial snapshot fetch for positions/orders; basic readonly lists.
 - Style Risk banner with severity colors and link to Settings.
+
+## Update — Alerts Page Enhancements
+
+Date: 2025-09-13
+
+- Rewrote Alerts page to align with backend API (`/api/v1/alerts/list|set|delete/:id`).
+- Added create form fields: symbol, type (above/below), timeframe (minute/day), level, optional threshold %, optional expiry ISO.
+- Added table view of active alerts with delete action.
+- Added Discord enablement hint.
+- File: `trading-dashboard/app/alerts/page.tsx`

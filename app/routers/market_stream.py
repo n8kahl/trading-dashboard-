@@ -5,10 +5,15 @@ from fastapi.responses import JSONResponse
 
 from app.services.stream import POLYGON_API_KEY, STREAM
 
-router = APIRouter(prefix="/market/stream", tags=["market-stream"])
+router = from pydantic import BaseModel
+
+APIRouter(prefix="/market/stream", tags=["market-stream"])
 
 
-@router.post("/start")
+class StreamStart(BaseModel):
+    symbols: list[str]
+
+@router.post('/start')
 async def start(body: Dict[str, Any]):
     if not POLYGON_API_KEY:
         return JSONResponse({"status": "error", "error": "POLYGON_API_KEY missing in server env"}, status_code=400)

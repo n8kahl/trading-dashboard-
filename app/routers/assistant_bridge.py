@@ -9,6 +9,7 @@ if not PUBLIC_BASE_URL:
     PUBLIC_BASE_URL = ""
 
 OPS = {
+    "options.pick": {"method":"POST","path":"/options/pick","mode":"json"},
     # Alerts
     "alerts.set":      {"method":"POST","path":"/api/v1/alerts/set","mode":"json"},
     "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
@@ -28,10 +29,10 @@ OPS = {
 },
     "alerts.list":     {"method":"GET", "path":"/api/v1/alerts/list","mode":None},
     # Stream
-    "stream.start":    {"method":"POST","path":"/api/v1/market/stream/start","mode":"json"},
+    # "stream.start":    {"method":"POST","path":"/api/v1/market/stream/start","mode":"json"},
     "stream.status":   {"method":"GET", "path":"/api/v1/market/stream/status","mode":None},
-    "stream.snapshot": {"method":"GET", "path":"/api/v1/market/stream/snapshot","mode":None},
-    "stream.stop":     {"method":"POST","path":"/api/v1/market/stream/stop","mode":None},
+    # "stream.snapshot": {"method":"GET", "path":"/api/v1/market/stream/snapshot","mode":None},
+    # "stream.stop":     {"method":"POST","path":"/api/v1/market/stream/stop","mode":None},
     # Broker (Tradier)
     "broker.order.submit": {"method":"POST","path":"/api/v1/broker/orders/submit","mode":"form"},
     "broker.order.cancel": {"method":"POST","path":"/api/v1/broker/orders/cancel","mode":"form"},

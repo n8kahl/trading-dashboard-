@@ -4,11 +4,14 @@ import httpx
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
+# Advertised ops this bridge handles
 OP_MAP = {
-    "stream.track":    {"method": "POST", "path": "/api/v1/stream/track"},
-    "stream.state":    {"method": "GET",  "path": "/api/v1/stream/quotes"},
-    "stream.snapshot": {"method": "GET",  "path": "/api/v1/stream/snapshot"},
-    "diag.health":     {"method": "GET",  "path": "/api/v1/diag/health"},
+    # STREAM (present in your API)
+    "stream.track": {"method": "POST", "path": "/api/v1/stream/track"},
+    "stream.state": {"method": "GET",  "path": "/api/v1/stream/quotes"},
+
+    # Diagnostics convenience
+    "diag.health":  {"method": "GET",  "path": "/api/v1/diag/health"},
 }
 
 class ExecBody(BaseModel):
@@ -26,7 +29,7 @@ async def assistant_exec(body: ExecBody):
         raise HTTPException(status_code=400, detail={"ok": False, "error": "unknown_op", "detail": body.op, "op": body.op})
 
     method = spec["method"].upper()
-    url    = spec["path"]  # absolute /api/v1/... path
+    url    = spec["path"]  # absolute path including /api/v1
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -42,6 +45,7 @@ async def assistant_exec(body: ExecBody):
                 r = await client.put(url, json=(body.args or {}))
             else:
                 raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_method", "detail": method})
+
         if "application/json" in (r.headers.get("content-type","")):
             return r.json()
         return {"ok": r.status_code < 400, "status": r.status_code, "text": r.text[:2000]}

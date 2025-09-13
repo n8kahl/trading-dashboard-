@@ -1,3 +1,4 @@
+from fastapi.responses import RedirectResponse
 import importlib
 import logging
 from contextlib import asynccontextmanager
@@ -142,10 +143,15 @@ app.include_router(broker_legacy.router)
 
 # Serve the front-end at root
 try:
-    app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+    app.mount("/ui", StaticFiles(directory="app/static", html=True), name="static")
 except Exception as e:
     print("[ui] static mount skipped:", e)
+# legacy assistant router disabled
 
 from app.routers import assistant_bridge
 
 app.include_router(assistant_bridge.router)
+
+@app.get("/")
+def _root_redirect():
+    return RedirectResponse("/ui")

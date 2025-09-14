@@ -101,11 +101,24 @@ def rvol_5min(minute_bars: List[Dict[str,Any]]) -> Optional[float]:
     return round(last5 / base, 2)
 
 def spread_stability(bids: List[float], asks: List[float]) -> Optional[float]:
-    """Heuristic 0..1 → lower variance of spread% = more stable."""
     pairs = [(b,a) for b,a in zip(bids,asks) if a and a>0 and b is not None]
     if len(pairs) < 5: return None
     sp = [((a-b)/a)*100.0 for b,a in pairs]
     mu = sum(sp)/len(sp)
     var = sum((x-mu)*(x-mu) for x in sp) / (len(sp)-1)
-    score = max(0.0, 1.0 - min(1.0, (var/25.0)))  # 0 var → 1.0; var≈25 → 0
+    score = max(0.0, 1.0 - min(1.0, (var/25.0)))
     return round(score, 2)
+
+def pivots_classic(prev_day: Dict[str, float]) -> Dict[str, float]:
+    """
+    Classic floor-trader pivots from prior day OHLC.
+    prev_day = {"o":..., "h":..., "l":..., "c":...}
+    """
+    h = prev_day.get("h"); l = prev_day.get("l"); c = prev_day.get("c")
+    if any(v is None for v in (h,l,c)): return {}
+    p = (h + l + c) / 3.0
+    r1 = 2*p - l
+    s1 = 2*p - h
+    r2 = p + (h - l)
+    s2 = p - (h - l)
+    return {"P": round(p,2), "R1": round(r1,2), "S1": round(s1,2), "R2": round(r2,2), "S2": round(s2,2)}

@@ -12,12 +12,15 @@ async function handle(res: Response) {
 }
 
 export async function apiGet(path: string) {
-  const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
+  // Use local proxy to avoid cross-origin CORS issues in the browser.
+  const proxied = `/api/proxy?path=${encodeURIComponent(path)}`;
+  const res = await fetch(proxied, { cache: "no-store" });
   return handle(res);
 }
 
 export async function apiPost(path: string, body: any) {
-  const res = await fetch(`${BASE}${path}`, {
+  const proxied = `/api/proxy?path=${encodeURIComponent(path)}`;
+  const res = await fetch(proxied, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {})

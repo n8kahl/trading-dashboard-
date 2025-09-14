@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict
 
 from app.services import tradier
+# Lazy imports in journaling block to avoid import-time coupling in tests
 
 from .ws import manager
 
@@ -22,6 +23,8 @@ class RiskEngine:
             "breach_daily_r": False,
             "breach_concurrent": False,
         }
+        self._last_alerts: Dict[str, bool] = {"daily": False, "concurrent": False}
+        self._seen_exec_ids: set[str] = set()
 
     async def refresh(self) -> None:
         pos = await tradier.get_positions()
@@ -49,6 +52,52 @@ class RiskEngine:
                     r = tr.get("risk_r") or tr.get("r") or tr.get("realized_r") or tr.get("risk")
                     if r is not None:
                         daily_r += float(r)
+
+                    # Best-effort execution journaling (dedupe by order id)
+                    # Build a stable dedupe key using id|symbol|time|qty
+                    oid = str(tr.get("id") or "")
+                    sym = str(tr.get("symbol") or "").upper()
+                    ts = tr.get("timestamp") or tr.get("time") or tr.get("date") or ""
+                    qty = tr.get("qty") or tr.get("quantity") or ""
+                    key = oid or f"{sym}|{ts}|{qty}"
+                    if key and key not in self._seen_exec_ids:
+                        self._seen_exec_ids.add(key)
+                        try:
+                            # local import to avoid import errors in test reloads
+                            from app.db import db_session  # type: ignore
+                            from app.models.misc import JournalEntry  # type: ignore
+                            from app.models.execution_seen import ExecutionSeen  # type: ignore
+
+                            with db_session() as s:
+                                if s is not None:
+                                    # persistent dedupe across restarts
+                                    try:
+                                        exists = (
+                                            s.query(ExecutionSeen)
+                                            .filter(ExecutionSeen.key == str(key))
+                                            .first()
+                                        )
+                                        if exists:
+                                            raise RuntimeError("dup")
+                                        s.add(ExecutionSeen(key=str(key)))
+                                        s.commit()
+                                    except Exception:
+                                        # either exists or insert failed — skip journaling
+                                        pass
+
+                                    side = (tr.get("side") or "").lower()
+                                    j_side = "long" if side in ("buy", "long") else ("short" if side in ("sell", "short") else None)
+                                    notes = f"Execution filled: {side or '?'} {tr.get('qty') or tr.get('quantity') or '?'} {tr.get('symbol') or ''}"
+                                    entry = JournalEntry(
+                                        symbol=(tr.get("symbol") or "").upper(),
+                                        side=j_side,
+                                        notes=notes,
+                                        meta={"execution": tr},
+                                    )
+                                    s.add(entry)
+                                    s.commit()
+                        except Exception:
+                            pass
                 except Exception:
                     logger.exception("error processing trade record")
         except Exception:
@@ -56,6 +105,58 @@ class RiskEngine:
 
         self.state["daily_r"] = daily_r
         self.state["breach_daily_r"] = bool(RISK_MAX_DAILY_R and daily_r > RISK_MAX_DAILY_R)
+
+        # Emit alerts on state transitions
+        try:
+            if self.state["breach_daily_r"] and not self._last_alerts.get("daily"):
+                msg = f"Daily loss limit breached (R={daily_r:.2f} > {RISK_MAX_DAILY_R})"
+                await manager.broadcast_json({"type": "alert", "level": "critical", "msg": msg})
+                # Discord forwarding (best-effort, only if enabled for 'risk')
+                try:
+                    from app.db import db_session  # type: ignore
+                    from app.models.settings import AppSettings  # type: ignore
+                    from app.integrations.discord import send_message as discord_send  # type: ignore
+
+                    with db_session() as s:
+                        if s is not None:
+                            settings = s.query(AppSettings).order_by(AppSettings.id.asc()).first()
+                            enabled = bool(settings and settings.discord_alerts_enabled)
+                            url = getattr(settings, "discord_webhook_url", None) if settings else None
+                            types_raw = getattr(settings, "discord_alert_types", "") if settings else ""
+                            types = {t.strip().lower() for t in (types_raw or "").split(",") if t.strip()}
+                            if enabled and url and ((not types) or ("risk" in types)):
+                                await discord_send(url, msg)
+                except Exception:
+                    pass
+                self._last_alerts["daily"] = True
+            if not self.state["breach_daily_r"] and self._last_alerts.get("daily"):
+                self._last_alerts["daily"] = False
+
+            if self.state["breach_concurrent"] and not self._last_alerts.get("concurrent"):
+                msg = f"Concurrent positions limit exceeded ({self.state['concurrent']} > {RISK_MAX_CONCURRENT})"
+                await manager.broadcast_json({"type": "alert", "level": "warning", "msg": msg})
+                # Discord forwarding (best-effort)
+                try:
+                    from app.db import db_session  # type: ignore
+                    from app.models.settings import AppSettings  # type: ignore
+                    from app.integrations.discord import send_message as discord_send  # type: ignore
+
+                    with db_session() as s:
+                        if s is not None:
+                            settings = s.query(AppSettings).order_by(AppSettings.id.asc()).first()
+                            enabled = bool(settings and settings.discord_alerts_enabled)
+                            url = getattr(settings, "discord_webhook_url", None) if settings else None
+                            types_raw = getattr(settings, "discord_alert_types", "") if settings else ""
+                            types = {t.strip().lower() for t in (types_raw or "").split(",") if t.strip()}
+                            if enabled and url and ((not types) or ("risk" in types)):
+                                await discord_send(url, msg)
+                except Exception:
+                    pass
+                self._last_alerts["concurrent"] = True
+            if not self.state["breach_concurrent"] and self._last_alerts.get("concurrent"):
+                self._last_alerts["concurrent"] = False
+        except Exception:
+            logger.exception("risk alert broadcast failed")
 
     async def loop(self) -> None:
         while True:

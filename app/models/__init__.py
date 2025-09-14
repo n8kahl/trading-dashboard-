@@ -3,6 +3,11 @@
 from .base import Base
 from .misc import Alert, AlertTrigger, JournalEntry, WatchlistItem
 from .paper import PaperFill, PaperPosition, PaperTrade
+from .settings import AppSettings  # ensure table is registered
+from .narrative import Narrative
+from .playbook import PlaybookEntry
+from .broker_order import BrokerOrder
+from .execution_seen import ExecutionSeen
 
 __all__ = [
     "Base",
@@ -13,4 +18,9 @@ __all__ = [
     "AlertTrigger",
     "WatchlistItem",
     "JournalEntry",
+    "AppSettings",
+    "Narrative",
+    "PlaybookEntry",
+    "BrokerOrder",
+    "ExecutionSeen",
 ]

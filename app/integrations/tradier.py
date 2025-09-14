@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import httpx
+from app.obs import log_event, get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,10 @@ DEFAULT_HEADERS = {
 
 
 def _log(event: str, detail: Dict[str, Any]) -> None:
-    # token-safe json-ish line logging
+    # Structured JSON log without secrets
     safe = dict(detail)
     safe.pop("Authorization", None)
-    logger.info(f"[{int(time.time() * 1000)}] tradier.{event} {safe}")
+    log_event(f"tradier.{event}", **safe)
 
 
 class TradierClient:
@@ -167,10 +168,15 @@ class TradierClient:
             form["preview"] = "true"
         headers = dict(DEFAULT_HEADERS)
         headers["Content-Type"] = "application/x-www-form-urlencoded"
+        rid = get_request_id()
+        if rid:
+            headers["X-Request-ID"] = rid
         s = await self._session()
         _log("request", {"cid": cid, "method": "POST", "url": url, "form_keys": list(form.keys())})
+        start = time.perf_counter()
         r = await s.post(url, data=form, headers=headers)
         _log("response", {"cid": cid, "status": r.status_code, "url": url})
+        log_event("tradier.timing", api="orders", method="POST", status=r.status_code, dur_ms=int((time.perf_counter()-start)*1000))
         r.raise_for_status()
         return r.json()
 
@@ -180,8 +186,14 @@ class TradierClient:
         url = f"/accounts/{aid}/orders/{order_id}/cancel"
         cid = str(uuid4())
         s = await self._session()
+        hdrs = dict(DEFAULT_HEADERS)
+        rid = get_request_id()
+        if rid:
+            hdrs["X-Request-ID"] = rid
         _log("request", {"cid": cid, "method": "POST", "url": url})
-        r = await s.post(url)
+        start = time.perf_counter()
+        r = await s.post(url, headers=hdrs)
         _log("response", {"cid": cid, "status": r.status_code, "url": url})
+        log_event("tradier.timing", api="cancel", method="POST", status=r.status_code, dur_ms=int((time.perf_counter()-start)*1000))
         r.raise_for_status()
         return r.json()

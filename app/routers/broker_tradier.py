@@ -8,6 +8,14 @@ from app.services.tradier_trading import (
 from app.services.tradier_trading import (
     place_order as tradier_place_order,
 )
+from app.db import db_session
+from app.models.misc import JournalEntry
+from app.models.broker_order import BrokerOrder
+from app.obs import get_request_id
+from datetime import datetime, timezone
+from app.services.compose import build_context_from_polygon
+from pydantic import BaseModel
+from typing import Literal
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
@@ -74,8 +82,116 @@ async def place_order_endpoint(req: OrderRequest):
     try:
         order = StrategyOrder.model_validate(req.model_dump())
         res = await tradier_place_order(order, preview=req.preview)
+
+        # Persist broker order audit (best-effort)
+        try:
+            with db_session() as session:
+                if session is not None:
+                    status = None
+                    try:
+                        status = ((res or {}).get("order") or {}).get("status") or (res.get("status") if isinstance(res, dict) else None)
+                    except Exception:
+                        status = None
+                    audit = BrokerOrder(
+                        symbol=order.symbol.upper(),
+                        side=order.side,
+                        quantity=order.quantity,
+                        order_type=order.order_type,
+                        limit_price=order.limit_price,
+                        duration=order.duration,
+                        bracket_stop=order.bracket_stop,
+                        bracket_target=order.bracket_target,
+                        preview=req.preview,
+                        request_id=get_request_id(),
+                        status=status,
+                        broker_response=res if isinstance(res, dict) else {"raw": str(res)},
+                    )
+                    session.add(audit)
+                    session.commit()
+        except Exception:
+            pass
+
+        # On actual placement (non-preview), attempt to create a journal entry summarizing the order
+        if not req.preview:
+            try:
+                with db_session() as session:
+                    if session is not None:
+                        side = "long" if (order.side or "buy") == "buy" else "short"
+                        bracket = None
+                        if order.bracket_stop is not None and order.bracket_target is not None:
+                            bracket = {"stop": order.bracket_stop, "target": order.bracket_target}
+                        notes = (
+                            f"Placed {order.order_type.upper()} {order.symbol.upper()} x{order.quantity} ({side})"
+                            + (f" with bracket SL {order.bracket_stop} / TP {order.bracket_target}" if bracket else "")
+                        )
+                        entry = JournalEntry(
+                            symbol=order.symbol.upper(),
+                            side=side,
+                            notes=notes,
+                            meta={
+                                "order": {
+                                    "symbol": order.symbol.upper(),
+                                    "quantity": order.quantity,
+                                    "side": order.side,
+                                    "type": order.order_type,
+                                    "limit_price": order.limit_price,
+                                    "duration": order.duration,
+                                    "bracket": bracket,
+                                },
+                                "broker_result": res,
+                            },
+                        )
+                        session.add(entry)
+                        session.commit()
+            except Exception:
+                # best-effort journaling: ignore errors
+                pass
+
         return {"ok": True, "preview": req.preview, "result": res}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # pragma: no cover - unexpected
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MoveStopRequest(BaseModel):
+    symbol: str
+    side: Literal["long", "short"]
+    quantity: int
+    offset_pct: float | None = 0.0005  # 5 bps outside VWAP
+    preview: bool = True
+
+
+@router.post("/move_stop")
+async def move_stop_to_vwap(req: MoveStopRequest):
+    """Compute today's VWAP and place a stop order at VWAP ± offset.
+
+    For long: place sell stop below VWAP.
+    For short: place buy stop above VWAP.
+    """
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        ctx = await build_context_from_polygon(req.symbol, today)
+        vwap = (ctx or {}).get("vwap")
+        if vwap is None:
+            raise HTTPException(status_code=400, detail="VWAP unavailable for symbol (insufficient data)")
+        off = abs((req.offset_pct or 0.0005) * float(vwap))
+        if req.side == "long":
+            stop_price = float(vwap) - off
+            side = "sell"
+        else:
+            stop_price = float(vwap) + off
+            side = "buy"
+        order = StrategyOrder(
+            symbol=req.symbol.upper(),
+            side=side,  # sell for long, buy for short
+            quantity=int(req.quantity),
+            order_type="stop",
+            stop_price=stop_price,
+        )
+        res = await tradier_place_order(order, preview=req.preview)
+        return {"ok": True, "preview": req.preview, "computed": {"vwap": vwap, "stop_price": stop_price}, "result": res}
+    except HTTPException:
+        raise
     except Exception as e:  # pragma: no cover - unexpected
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,0 +1,72 @@
+name: Auto PR and Automerge
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'refactor/**'
+      - 'feat/dashboard-live-confidence-discord'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create_pr_and_enable_automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create or find PR
+        id: create_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const head = context.ref.replace('refs/heads/','');
+            const base = 'main';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Skip if pushing to main
+            if (head === base) {
+              core.notice('Push to main; skipping PR creation.');
+              core.setOutput('pr_number', '');
+              return;
+            }
+
+            // Try to find existing open PR from head->base
+            const { data: prs } = await github.pulls.list({ owner, repo, state: 'open', head: `${owner}:${head}`, base }).catch(() => ({ data: [] }));
+            let pr = prs && prs.length ? prs[0] : null;
+
+            if (!pr) {
+              // Read body from PROGRESS.md if present
+              const fs = require('fs');
+              let body = 'Automated PR created by workflow.';
+              try { body = fs.readFileSync('docs/PROGRESS.md', 'utf8'); } catch (e) {}
+              pr = (await github.pulls.create({ owner, repo, base, head, title: `Automated PR from ${head}`, body })).data;
+              core.notice(`Created PR #${pr.number}`);
+            } else {
+              core.notice(`Found existing PR #${pr.number}`);
+            }
+
+            // Label the PR (best effort)
+            try {
+              await github.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['automerge', 'codex'] });
+            } catch (e) {
+              core.warning(`Labeling failed: ${e.message}`);
+            }
+
+            core.setOutput('pr_number', String(pr.number));
+
+      - name: Enable auto-merge (squash)
+        if: steps.create_pr.outputs.pr_number != ''
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ steps.create_pr.outputs.pr_number }}
+          merge-method: squash
+

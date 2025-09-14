@@ -71,6 +71,37 @@ def score_vwap_bounce(c: Dict[str, Any]) -> Dict[str, int | float]:
     if c.get("is_macro_window") is True:
         comp["macro"] = -5
         score -= 5
+    # ATR regime (1m pct)
+    atrp = _safe_num(c.get("atr_1m_pct"))
+    if atrp is not None:
+        if 1.0 <= atrp <= 4.0:
+            comp["atr_regime"] = 2
+            score += 2
+        elif atrp < 1.0:
+            comp["atr_regime"] = -5
+            score -= 5
+        elif atrp > 8.0:
+            comp["atr_regime"] = -3
+            score -= 3
+        else:
+            comp["atr_regime"] = 0
+    # Distance to EMA20
+    d20 = _safe_num(c.get("dist_ema20_pct"))
+    if d20 is not None:
+        adj = max(-10, min(10, d20)) / 2  # clamp ±10 → ±5 pts
+        comp["dist_ema20"] = adj
+        score += adj
+    # Order flow proxies
+    flow = 0
+    cvd = _safe_num(c.get("cvd_approx_20"))
+    if cvd is not None:
+        flow += 4 if cvd > 0 else (-4 if cvd < 0 else 0)
+    obv = _safe_num(c.get("obv_slope_10"))
+    if obv is not None:
+        flow += 4 if obv > 0 else (-4 if obv < 0 else 0)
+    if flow:
+        comp["flow"] = flow
+        score += flow
     return {"score": max(0, min(100, score)), "components": comp}
 
 
@@ -100,6 +131,25 @@ def score_ema_crossover(c: Dict[str, Any]) -> Dict[str, int | float]:
     if ivp is not None:
         comp["vol_context"] = 4 if 20 <= ivp <= 75 else (-4 if ivp > 85 else 0)
         score += comp["vol_context"]
+    # ATR regime and flow light touch here
+    atrp = _safe_num(c.get("atr_1m_pct"))
+    if atrp is not None:
+        if 1.0 <= atrp <= 4.5:
+            comp["atr_regime"] = 2
+            score += 2
+        elif atrp < 1.0:
+            comp["atr_regime"] = -4
+            score -= 4
+    flow = 0
+    cvd = _safe_num(c.get("cvd_approx_20"))
+    if cvd is not None:
+        flow += 3 if cvd > 0 else (-3 if cvd < 0 else 0)
+    obv = _safe_num(c.get("obv_slope_10"))
+    if obv is not None:
+        flow += 3 if obv > 0 else (-3 if obv < 0 else 0)
+    if flow:
+        comp["flow"] = flow
+        score += flow
     return {"score": max(0, min(100, score)), "components": comp}
 
 
@@ -140,6 +190,15 @@ def score_opening_range_breakout(c: Dict[str, Any]) -> Dict[str, int | float]:
     if vwap is not None and price is not None:
         comp["vwap_posture"] = 8 if price > vwap else -6
         score += comp["vwap_posture"]
+    # ATR regime small influence
+    atrp = _safe_num(c.get("atr_1m_pct"))
+    if atrp is not None:
+        if 1.0 <= atrp <= 5.0:
+            comp["atr_regime"] = 2
+            score += 2
+        elif atrp < 1.0:
+            comp["atr_regime"] = -3
+            score -= 3
     return {"score": max(0, min(100, score)), "components": comp}
 
 

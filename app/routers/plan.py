@@ -32,8 +32,10 @@ class ValidateResponse(BaseModel):
     side: str
     risk_R: float
     per_unit_risk: float
+    rr_bands: List[float]
     targets: List[float]
     notes: List[str]
+    summary: str
 
 
 def _coerce_plan(req: ValidateRequest) -> Plan:
@@ -83,6 +85,16 @@ async def validate_plan(payload: dict = Body(...)):
 
         notes = _validate_sanity(req.side, plan.entry, plan.stop)
 
+        # RR bands (0.5R, 1R, 2R)
+        rr_bands = [round(0.5 * per_unit, 6), round(1.0 * per_unit, 6), round(2.0 * per_unit, 6)]
+
+        # NL summary
+        direction = "LONG/CALL" if side_l in ("long", "call") else "SHORT/PUT"
+        summary = (
+            f"{req.symbol.upper()} {direction}: entry {plan.entry:.4f}, stop {plan.stop:.4f} (risk {per_unit:.4f}/unit). "
+            f"Targets ~ {tp1:.4f} / {tp2:.4f} ({'+' if side_l in ('long','call') else '-'}1R / {'+' if side_l in ('long','call') else '-'}2R)."
+        )
+
         return {
             "status": "ok",
             "data": ValidateResponse(
@@ -91,8 +103,10 @@ async def validate_plan(payload: dict = Body(...)):
                 side=req.side,
                 risk_R=req.risk_R,
                 per_unit_risk=per_unit,
+                rr_bands=rr_bands,
                 targets=[tp1, tp2],
                 notes=notes or ["Looks sane."],
+                summary=summary,
             ).model_dump(),
         }
     except ValidationError as ve:

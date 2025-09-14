@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiGet, apiPost } from '@/src/lib/api';
 import { z } from 'zod';
 
 const WatchlistZ = z.object({
@@ -34,14 +34,14 @@ const OptionsPickRespZ = z.object({
 export default function ClientDashboard() {
   const wl = useQuery({
     queryKey: ['watchlist'],
-    queryFn: async () => WatchlistZ.parse(await api.get('/api/v1/screener/watchlist/get')),
+  queryFn: async () => WatchlistZ.parse(await apiGet('/api/v1/screener/watchlist/get')),
   });
 
   const picks = useQuery({
     queryKey: ['picks','SPY','long_call','intra'],
     queryFn: async () =>
       OptionsPickRespZ.parse(
-        await api.post('/api/v1/options/pick', { symbol: 'SPY', side: 'long_call', horizon: 'intra', n: 5 })
+        await apiPost('/api/v1/options/pick', { symbol: 'SPY', side: 'long_call', horizon: 'intra', n: 5 })
       ),
   });
 

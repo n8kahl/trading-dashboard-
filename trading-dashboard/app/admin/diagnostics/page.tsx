@@ -8,12 +8,12 @@ import { Skeleton } from '../../../components/ui/skeleton';
 const MetricsSchema = z.array(z.object({ bucket: z.number(), expected: z.number(), actual: z.number(), expectancy: z.number() }));
 
 export default function AdminDiagnosticsPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: ['admin-metrics'],
     queryFn: () => apiGet('/api/v1/admin/diag/metrics', MetricsSchema),
   });
 
-  if (isLoading) return <Skeleton className="h-64" />;
+  if (isPending) return <Skeleton className="h-64" />;
   if (!data) return <p>No diagnostics.</p>;
 
   return (

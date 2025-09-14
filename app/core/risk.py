@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict
 
 from app.services import tradier
+# Lazy imports in journaling block to avoid import-time coupling in tests
 
 from .ws import manager
 
@@ -23,6 +24,7 @@ class RiskEngine:
             "breach_concurrent": False,
         }
         self._last_alerts: Dict[str, bool] = {"daily": False, "concurrent": False}
+        self._seen_exec_ids: set[str] = set()
 
     async def refresh(self) -> None:
         pos = await tradier.get_positions()
@@ -50,6 +52,31 @@ class RiskEngine:
                     r = tr.get("risk_r") or tr.get("r") or tr.get("realized_r") or tr.get("risk")
                     if r is not None:
                         daily_r += float(r)
+
+                    # Best-effort execution journaling (dedupe by order id)
+                    oid = str(tr.get("id") or "")
+                    if oid and oid not in self._seen_exec_ids:
+                        self._seen_exec_ids.add(oid)
+                        try:
+                            # local import to avoid import errors in test reloads
+                            from app.db import db_session  # type: ignore
+                            from app.models.misc import JournalEntry  # type: ignore
+
+                            with db_session() as s:
+                                if s is not None:
+                                    side = (tr.get("side") or "").lower()
+                                    j_side = "long" if side in ("buy", "long") else ("short" if side in ("sell", "short") else None)
+                                    notes = f"Execution filled: {side or '?'} {tr.get('qty') or tr.get('quantity') or '?'} {tr.get('symbol') or ''}"
+                                    entry = JournalEntry(
+                                        symbol=(tr.get("symbol") or "").upper(),
+                                        side=j_side,
+                                        notes=notes,
+                                        meta={"execution": tr},
+                                    )
+                                    s.add(entry)
+                                    s.commit()
+                        except Exception:
+                            pass
                 except Exception:
                     logger.exception("error processing trade record")
         except Exception:

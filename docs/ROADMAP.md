@@ -30,11 +30,11 @@ Last reviewed: 2025-09-14
 
 ## M3 — Broker Workflow (Tradier)
 - [x] Place/cancel orders; show statuses in Positions/Orders tabs.
-- [ ] Confirmations, errors, and journaling of executions.  (journaling not yet wired)
+- [x] Confirmations, errors, and journaling of executions.  (filled orders journaled; errors surfaced)
 
 ## M4 — Coach Confidence & Guidance (chat-data)
 - [x] Coach tools for quotes, picks, plan, sizing, set alert, place/cancel order, journal add.
-- [ ] Responses include `confidence` and cite data sources used.  (compose-and-analyze available; wire into coach)
+- [x] Responses include `confidence` and cite data sources used.  (compose-and-analyze wired via prompt; narrator + chat include confidence)
 
 ## Operational Readiness
 - [x] Docs for required env vars: `POLYGON_API_KEY`, `TRADIER_ACCESS_TOKEN`, `TRADIER_ACCOUNT_ID`, `TRADIER_ENV`, `CHATDATA_*`, `DATABASE_URL`.

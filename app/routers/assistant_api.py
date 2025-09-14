@@ -8,7 +8,7 @@ from app.services.state_store import record_chain_aggregates
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1")
 
 # ---------- Dynamic provider imports (robust, non-fatal) ----------
 from importlib import import_module as _im

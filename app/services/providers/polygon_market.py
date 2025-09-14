@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 API_KEY = os.getenv("POLYGON_API_KEY", "")
 BASE = "https://api.polygon.io"
 
-# --- tiny in-process cache to avoid 429s on repeated calls (TTL seconds) ---
+# --- tiny cache ---
 _CACHE: Dict[str, Dict[str, Any]] = {}
 def _cache_get(key: str, ttl: int) -> Optional[Dict[str, Any]]:
     item = _CACHE.get(key)
@@ -15,7 +15,6 @@ def _cache_get(key: str, ttl: int) -> Optional[Dict[str, Any]]:
     if time.time() - item["t"] > ttl:
         _CACHE.pop(key, None); return None
     return item["v"]
-
 def _cache_put(key: str, value: Dict[str, Any]):
     _CACHE[key] = {"t": time.time(), "v": value}
 
@@ -33,6 +32,23 @@ def _ensure_api_key(u: str) -> str:
         u = urlunparse((parts.scheme, parts.netloc, parts.path, parts.params, new_query, parts.fragment))
     return u
 
+def _occ_symbol(underlying: str, expiry_iso: Optional[str], ctype: Optional[str], strike: Optional[float]) -> Optional[str]:
+    try:
+        if not (underlying and expiry_iso and ctype and strike is not None):
+            return None
+        # expiry like "2025-09-15" -> YYMMDD
+        y,m,d = expiry_iso.split("-")
+        y2 = y[-2:]
+        mmdd = f"{m}{d}"
+        # type
+        cp = "C" if str(ctype).lower() == "call" else "P"
+        # strike * 1000, 8 digits zero-padded
+        strike1000 = int(round(float(strike) * 1000))
+        strike_str = f"{strike1000:08d}"
+        return f"{underlying.upper()}{y2}{mmdd}{cp}{strike_str}"
+    except Exception:
+        return None
+
 class PolygonMarket:
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
@@ -44,22 +60,18 @@ class PolygonMarket:
             if cached is not None:
                 return cached
         async with httpx.AsyncClient(timeout=self.timeout) as c:
-            # simple retry/backoff for 429/5xx
             backoff = 0.25
-            for attempt in range(5):
+            for _ in range(5):
                 r = await c.get(url, params=_p(params))
                 if r.status_code == 429 or 500 <= r.status_code < 600:
                     time.sleep(backoff); backoff *= 2; continue
                 r.raise_for_status()
                 j = r.json() or {}
-                if cache_ttl:
-                    _cache_put(key, j)
+                if cache_ttl: _cache_put(key, j)
                 return j
-            # last try raise
             r.raise_for_status()
             return r.json() or {}
 
-    # -------- Underlying last-trade (fallback only; you use Tradier for price) --------
     async def last_trade(self, symbol: str) -> Dict[str, Any]:
         try:
             j = await self._get(f"{BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}", None, cache_ttl=10)
@@ -77,7 +89,6 @@ class PolygonMarket:
             return {"symbol": symbol.upper(), "price": res[0].get("c"), "t": res[0].get("t")}
         return {"symbol": symbol.upper(), "price": None, "t": None}
 
-    # -------- Session bounds helpers --------
     def _utc_midnight_bounds(self, dt: Optional[datetime] = None) -> tuple[int,int]:
         now = dt or datetime.now(timezone.utc)
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -106,36 +117,21 @@ class PolygonMarket:
                 for b in (j.get("results") or [])]
 
     async def five_minute_bars_prev_session(self, symbol: str, max_lookback_days: int = 10) -> List[Dict[str, Any]]:
-        # Walk back up to N calendar days to find the last session with data
         day = datetime.now(timezone.utc).date() - timedelta(days=1)
         for _ in range(max_lookback_days):
             bars = await self.minute_bars_for_day(symbol, datetime(day.year, day.month, day.day, tzinfo=timezone.utc))
             if bars:
-                # condense to 5m if needed
                 if len(bars) >= 5:
-                    out = []
-                    acc = []
+                    out, acc = [], []
                     for b in bars:
                         acc.append(b)
                         if len(acc) == 5:
-                            out.append({
-                                "t": acc[-1]["t"],
-                                "o": acc[0]["o"],
-                                "h": max(x["h"] for x in acc),
-                                "l": min(x["l"] for x in acc),
-                                "c": acc[-1]["c"],
-                                "v": sum(x["v"] or 0 for x in acc),
-                            })
+                            out.append({"t": acc[-1]["t"], "o": acc[0]["o"], "h": max(x["h"] for x in acc),
+                                        "l": min(x["l"] for x in acc), "c": acc[-1]["c"], "v": sum(x["v"] or 0 for x in acc)})
                             acc = []
                     if acc:
-                        out.append({
-                            "t": acc[-1]["t"],
-                            "o": acc[0]["o"],
-                            "h": max(x["h"] for x in acc),
-                            "l": min(x["l"] for x in acc),
-                            "c": acc[-1]["c"],
-                            "v": sum(x["v"] or 0 for x in acc),
-                        })
+                        out.append({"t": acc[-1]["t"], "o": acc[0]["o"], "h": max(x["h"] for x in acc),
+                                    "l": min(x["l"] for x in acc), "c": acc[-1]["c"], "v": sum(x["v"] or 0 for x in acc)})
                     return out
                 return bars
             day = day - timedelta(days=1)
@@ -149,16 +145,21 @@ class PolygonMarket:
         return [{"t":b.get("t"),"o":b.get("o"),"h":b.get("h"),"l":b.get("l"),"c":b.get("c"),"v":b.get("v")}
                 for b in (j.get("results") or [])]
 
-    # -------- Options snapshot (v3) with pagination (limit<=250) + robust symbol extraction --------
-    def _opt_symbol(self, r: Dict[str, Any]) -> Optional[str]:
-        # Try multiple places; polygon responses vary
-        return (
-            r.get("ticker")
-            or (r.get("options") or {}).get("symbol")
-            or (r.get("details") or {}).get("symbol")
-            or (r.get("details") or {}).get("option_symbol")
-            or (r.get("contract") or {}).get("symbol")
-        )
+    def _opt_symbol(self, r: Dict[str, Any], underlying: str) -> Optional[str]:
+        # Try multiple locations
+        sym = (r.get("ticker")
+               or (r.get("options") or {}).get("symbol")
+               or (r.get("details") or {}).get("symbol")
+               or (r.get("details") or {}).get("option_symbol")
+               or (r.get("contract") or {}).get("symbol"))
+        if sym: return sym
+        # Compose OCC symbol fall-back
+        meta = r.get("options") or {}
+        details = r.get("details") or {}
+        expiry = meta.get("expiration_date") or details.get("expiration_date")
+        ctype  = meta.get("contract_type") or details.get("contract_type")
+        strike = meta.get("strike_price") or details.get("strike_price")
+        return _occ_symbol(underlying, expiry, ctype, strike)
 
     async def snapshot_option_chain(self, underlying: str, limit: int = 250, max_pages: int = 6) -> Dict[str, Any]:
         per_page = min(max(1, limit), 250)
@@ -177,9 +178,8 @@ class PolygonMarket:
                 r.raise_for_status()
                 j = r.json() or {}
                 results = j.get("results") or []
-                # Normalize symbol inline so callers don't see None
                 for x in results:
-                    sym = self._opt_symbol(x)
+                    sym = self._opt_symbol(x, underlying)
                     if sym:
                         x.setdefault("options", {})["symbol"] = sym
                 all_results.extend(results)

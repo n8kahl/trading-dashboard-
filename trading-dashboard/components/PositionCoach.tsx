@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useEventSource } from "@/src/lib/useEventSource";
+import { useRisk } from "@/src/lib/store";
 
 type Props = { symbol: string; positionId?: string | null };
 
@@ -13,7 +14,8 @@ export default function PositionCoach({ symbol, positionId }: Props) {
   const next = Array.isArray(g?.if_then) && g.if_then.length ? (g.if_then[0] || {}) : {};
   const unless = g?.risk_notes || g?.unless || "—";
 
-  const disabled = false; // TODO: bound to risk breach from store
+  const risk = useRisk();
+  const disabled = !!(risk?.breach_daily_r || risk?.breach_concurrent);
 
   const postJson = async (path: string, body: any) => {
     const res = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, {

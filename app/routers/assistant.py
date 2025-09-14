@@ -6,7 +6,16 @@ import re as _re
 
 from app.services.providers.polygon_market import PolygonMarket
 from app.services.providers.tradier import TradierMarket, TradierAuthError, TradierHTTPError
-from app.services.indicators import (
+from app.services.indicators import
+from app.engine.regime import analyze as regime_analyze
+from app.engine.options_scoring import (
+    tradeability_score, ScoreWeights,
+    expected_move_from_straddle, probability_of_touch
+)
+from app.engine.position_guidance import (
+    dynamic_trailing_stop, scale_plan, adjust_targets_for_em
+)
+ (
     ema, sma, rsi, macd, atr14,
     session_vwap_and_sigma, pivots_classic, rvol_5min
 )
@@ -311,6 +320,56 @@ async def assistant_exec(payload: Dict[str, Any]):
         out["confidence"] = {"score": 50, "details": []}
         out["regime"] = {"trend": None}
 
+        
+        # --- Enrichment: ensure price exists when options-only so EM can compute ---
+        try:
+            if ("options" in include):
+                _last = (out.get("price") or {}).get("last")
+                if _last is None:
+                    try:
+                        tq = await tradier.quote_last(symU)
+                        if tq.get("price") is not None:
+                            out.setdefault("price", {})["last"] = tq.get("price")
+                            out["price"]["t"] = tq.get("t")
+                    except Exception:
+                        try:
+                            lt = await poly.last_trade(symU)
+                            if lt.get("price") is not None:
+                                out.setdefault("price", {})["last"] = lt.get("price")
+                                out["price"]["t"] = lt.get("t")
+                        except Exception as _e:
+                            errs["price.enrich"] = f"{type(_e).__name__}: {_e}"
+        except Exception as e:
+            errs["price.enrich.outer"] = f"{type(e).__name__}: {e}"
+
+        # --- Regime / Opening (safe when minute_bars absent) ---
+        try:
+            if "minute_bars" in locals() and minute_bars:
+                regime_info = regime_analyze(minute_bars)
+                out.setdefault("context", {})
+                out["context"]["opening_type"] = regime_info.get("opening_type")
+                out["context"]["regime"] = regime_info.get("regime")
+        except Exception as e:
+            errs["regime"] = f"{type(e).__name__}: {e}"
+
+        # --- Expected Move from near-ATM straddle and hit probabilities ---
+        try:
+            opts = (out.get("options") or {}).get("top") or []
+            _last = (out.get("price") or {}).get("last")
+            if opts and _last is not None:
+                em_abs, em_rel = expected_move_from_straddle(last_price=float(_last), candidates=opts[:8])
+                if em_abs:
+                    out.setdefault("context", {})
+                    out["context"]["expected_move"] = {"abs": em_abs, "rel": em_rel}
+                    for r in opts:
+                        r["tradeability"], r["components"] = tradeability_score(r, horizon=horizon)
+                        r["hit_probabilities"] = {
+                            "tp1": probability_of_touch(distance=em_abs*0.25, sigma_abs=em_abs),
+                            "tp2": probability_of_touch(distance=em_abs*0.50, sigma_abs=em_abs)
+                        }
+        except Exception as e:
+            errs["expected_move"] = f"{type(e).__name__}: {e}"
+    
         snapshot["symbols"][symU] = out
         if errs: snapshot["errors"][symU] = errs
 

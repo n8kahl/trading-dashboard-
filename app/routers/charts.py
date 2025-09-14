@@ -241,7 +241,16 @@ async def chart_proposal(
       // Make legend text more intuitive
       try { document.getElementById('legend').textContent = '${SYM} ${INTERVAL} • ' + prettyOverlays(); } catch (e) {}
     }
-    main();
+    (function bootstrap(){
+      if (typeof LightweightCharts !== 'undefined') { main(); return; }
+      try {
+        const alt = 'https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
+        const s = document.createElement('script');
+        s.src = alt; s.async = true; s.onload = () => main();
+        s.onerror = () => { try { document.getElementById('chart').innerHTML = '<div style="color:#f00;padding:16px">Chart library failed to load from both CDNs.</div>'; } catch(e) {} };
+        document.head.appendChild(s);
+      } catch (e) { try { document.getElementById('chart').innerHTML = '<div style="color:#f00;padding:16px">Chart library failed to load. Please try again.</div>'; } catch(_) {} }
+    })();
   </script>
 </body>
 </html>

@@ -4,6 +4,8 @@ from app.routers.assistant_api import router as assistant_router
 from app.routers.diag import router as diag_router  # <-- make sure this exists
 from app.routers.hedge import router as hedge_router
 from app.routers.market import router as market_router
+from app.routers.market_data import router as market_data_router
+from app.routers.charts import router as charts_router
 
 app = FastAPI(title="Trading Assistant – Stable Exec Layer")
 
@@ -20,3 +22,5 @@ app.include_router(diag_router)
 app.include_router(assistant_router)
 app.include_router(hedge_router)
 app.include_router(market_router)
+app.include_router(market_data_router)
+app.include_router(charts_router)

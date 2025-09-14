@@ -58,6 +58,17 @@ This document tracks code and docs changes so work can be resumed easily in a ne
 
 ### Later on 2025-09-14 (Market Overview + Hedge Endpoint)
 
+### Later on 2025-09-14 (Option B Interactive Chart)
+
+- Feature: Interactive chart (server HTML with client-side rendering)
+  - New `GET /charts/proposal` returning a Lightweight Charts page.
+  - Query params: `symbol`, `interval` (1m/5m/1d), `lookback`, `overlays` (vwap,ema20,ema50), and optional `entry,sl,tp1,tp2` lines.
+  - Uses `GET /api/v1/market/bars` to fetch OHLCV; computes VWAP and EMAs client-side.
+  - Minimal bandwidth; no extra token cost; link-friendly for GPT. Rollback by not linking.
+
+- Feature: Bars data endpoint
+  - New `GET /api/v1/market/bars` serving recent Polygon OHLCV for 1m/5m/daily.
+
 - Feature: Market overview endpoint
   - New `GET /api/v1/market/overview` summarizing indices (SPY, QQQ) and sector ETFs.
   - Returns last, daily change %, intraday VWAP/sigma, RVOL(5), and regime metrics where available.

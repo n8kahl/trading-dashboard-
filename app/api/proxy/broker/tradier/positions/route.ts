@@ -4,11 +4,13 @@ const API_BASE_URL = process.env.API_BASE_URL || "https://tradingassistantmcprea
 
 export async function GET(request: NextRequest) {
   try {
+    const apiKey = process.env.API_KEY
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (apiKey) headers["x-api-key"] = apiKey
+
     const response = await fetch(`${API_BASE_URL}/broker/tradier/positions`, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
     })
 
     if (!response.ok) {

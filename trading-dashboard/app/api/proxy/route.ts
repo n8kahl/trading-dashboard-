@@ -34,11 +34,8 @@ export async function GET(req: NextRequest) {
     },
     cache: "no-store",
   });
-  const body = await res.arrayBuffer();
-  return new NextResponse(body, {
-    status: res.status,
-    headers: res.headers,
-  });
+  // Stream pass-through for SSE and other streaming responses
+  return new NextResponse(res.body, { status: res.status, headers: res.headers });
 }
 
 export async function POST(req: NextRequest) {

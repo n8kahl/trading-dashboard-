@@ -8,6 +8,11 @@ import { useWS, usePrices, useRisk } from "@/src/lib/store";
 import { toast } from "sonner";
 import NewsPanel from "@/components/NewsPanel";
 import AlertsPanel from "@/components/AlertsPanel";
+import NarrativeTicker from "@/components/NarrativeTicker";
+import PositionCoach from "@/components/PositionCoach";
+import ConfidenceCardV2 from "@/components/ConfidenceCard";
+import LiveChart from "@/components/LiveChart";
+import OrderTicket from "@/components/OrderTicket";
 
 type WatchlistResp = { ok: boolean; symbols: string[] };
 type Pick = {
@@ -30,6 +35,7 @@ function smallNum(n?: number, d: number = 3) {
 export default function Page() {
   const [side, setSide] = useState<"call"|"put">("call");
   const [ticker, setTicker] = useState("SPY");
+  const [ticketOpen, setTicketOpen] = useState(false);
   const connected = useWS();
   const prices = usePrices();
   const risk = useRisk();
@@ -69,6 +75,14 @@ export default function Page() {
       return apiPost("/api/v1/compose-and-analyze", body);
     }
   });
+  const levels = useMemo(() => {
+    const data = (analyze?.data as any)?.data || analyze?.data as any;
+    const p = data?.plan;
+    if (p) {
+      return { entry: Number(p.entry), stop: Number(p.stop), tp1: Number(p.tp1), tp2: Number(p.tp2) };
+    }
+    return {} as any;
+  }, [analyze.data]);
 
   const alertMut = useMutation({
     mutationFn: (args: {symbol:string; timeframe?: 'minute'|'day'; type: 'price_above'|'price_below'; value:number; threshold_pct?: number}) =>
@@ -224,19 +238,33 @@ export default function Page() {
             </div>
           </div>
 
-          <ConfidenceCard ticker={ticker} analyze={analyze} />
+          <ConfidencePanel ticker={ticker} analyze={analyze} />
         </div>
       </section>
 
       <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:12, marginTop:12}}>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
-          {/* Reserved for future chart/workspace content */}
+          <LiveChart symbol={ticker} levels={levels} />
         </div>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          {process.env.NEXT_PUBLIC_DISABLE_NARRATOR === '1' ? null : <NarrativeTicker symbol={ticker} />}
+          {process.env.NEXT_PUBLIC_DISABLE_NARRATOR === '1' ? null : <PositionCoach symbol={ticker} />}
           <NewsPanel symbols={(wl.data?.symbols ?? [ticker]).slice(0,7)} />
           <AlertsPanel />
         </div>
       </div>
+
+      {/* Sticky mobile action bar */}
+      <div style={{position:"fixed", left:0, right:0, bottom:8, display:"flex", gap:8, justifyContent:"center"}}
+        className="mobile-only">
+        <div className="card" style={{display:"flex", gap:8, padding:8}}>
+          <button className="secondary" onClick={()=>setTicketOpen(true)}>Buy</button>
+          <button className="secondary" onClick={()=>setTicketOpen(true)}>Sell</button>
+          <button className="secondary" onClick={()=>alert("Alert preset (stub)")}>Alert</button>
+          <button className="secondary" onClick={()=>alert("Ask Coach (stub)")}>Coach</button>
+        </div>
+      </div>
+      <OrderTicket symbol={ticker} open={ticketOpen} onClose={()=> setTicketOpen(false)} />
     </main>
   );
 }
@@ -251,8 +279,9 @@ function bandMeta(score?: number): { label: string; color: string } {
   return { label: '—', color: '#64748b' };
 }
 
-function ConfidenceCard({ ticker, analyze }: { ticker: string; analyze: any }) {
-  const data = analyze?.data;
+function ConfidencePanel({ ticker, analyze }: { ticker: string; analyze: any }) {
+  const raw = analyze?.data as any;
+  const data = (raw?.data || raw) as any;
   const analysis = data?.analysis || null;
   const score: number | undefined = analysis?.score;
   const meta = bandMeta(score);
@@ -269,6 +298,20 @@ function ConfidenceCard({ ticker, analyze }: { ticker: string; analyze: any }) {
       <div className="small" style={{marginTop:6}}>
         {analyze.isPending ? "Analyzing…" : analyze.isError ? String(analyze.error) : analysis ? (
           <>
+            <div style={{marginBottom:8}}>
+              <ConfidenceCardV2
+                score={score ?? 0}
+                band={meta.label.toLowerCase()}
+                components={{
+                  ATR: Number(comps.atr_regime ?? 0),
+                  VWAP: Number(comps.vwap_posture ?? comps.vwap_support ?? 0),
+                  EMAs: Number(comps.ema_stack ?? 0),
+                  Flow: Number((comps.flow ?? 0) + (comps.momentum_hint ?? 0)),
+                  Liquidity: Number(comps.liquidity ?? 0),
+                  Vol: Number(comps.vol_context ?? 0),
+                }}
+              />
+            </div>
             <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:8}}>
               <div style={{display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.04)", border:"1px solid var(--border)", borderRadius:12, padding:"6px 10px"}}>
                 <div style={{fontSize:"1.2rem", fontWeight:800}}>{Math.round(score ?? 0)}</div>

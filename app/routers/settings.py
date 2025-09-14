@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.db import db_session
 from app.models.settings import AppSettings
+from app.integrations.discord import send_message as discord_send
 
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -86,3 +87,19 @@ def set_settings(body: SettingsBody) -> Dict[str, Any]:
         session.add(row)
         session.commit()
         return {"ok": True}
+
+
+@router.post("/discord/test")
+async def discord_test() -> Dict[str, Any]:
+    """Send a test message to the configured Discord webhook, if enabled.
+
+    Returns ok=False if missing config.
+    """
+    with db_session() as session:
+        if session is None:
+            raise HTTPException(status_code=500, detail="Database not configured")
+        row = session.execute(select(AppSettings).order_by(AppSettings.id.asc())).scalars().first()
+        if not row or not row.discord_webhook_url:
+            return {"ok": False, "error": "webhook_not_set"}
+        sent = await discord_send(row.discord_webhook_url, "Trading Assistant — test message ✅")
+        return {"ok": bool(sent)}

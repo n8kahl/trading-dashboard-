@@ -109,21 +109,49 @@ class RiskEngine:
         # Emit alerts on state transitions
         try:
             if self.state["breach_daily_r"] and not self._last_alerts.get("daily"):
-                await manager.broadcast_json({
-                    "type": "alert",
-                    "level": "critical",
-                    "msg": f"Daily loss limit breached (R={daily_r:.2f} > {RISK_MAX_DAILY_R})",
-                })
+                msg = f"Daily loss limit breached (R={daily_r:.2f} > {RISK_MAX_DAILY_R})"
+                await manager.broadcast_json({"type": "alert", "level": "critical", "msg": msg})
+                # Discord forwarding (best-effort, only if enabled for 'risk')
+                try:
+                    from app.db import db_session  # type: ignore
+                    from app.models.settings import AppSettings  # type: ignore
+                    from app.integrations.discord import send_message as discord_send  # type: ignore
+
+                    with db_session() as s:
+                        if s is not None:
+                            settings = s.query(AppSettings).order_by(AppSettings.id.asc()).first()
+                            enabled = bool(settings and settings.discord_alerts_enabled)
+                            url = getattr(settings, "discord_webhook_url", None) if settings else None
+                            types_raw = getattr(settings, "discord_alert_types", "") if settings else ""
+                            types = {t.strip().lower() for t in (types_raw or "").split(",") if t.strip()}
+                            if enabled and url and ((not types) or ("risk" in types)):
+                                await discord_send(url, msg)
+                except Exception:
+                    pass
                 self._last_alerts["daily"] = True
             if not self.state["breach_daily_r"] and self._last_alerts.get("daily"):
                 self._last_alerts["daily"] = False
 
             if self.state["breach_concurrent"] and not self._last_alerts.get("concurrent"):
-                await manager.broadcast_json({
-                    "type": "alert",
-                    "level": "warning",
-                    "msg": f"Concurrent positions limit exceeded ({self.state['concurrent']} > {RISK_MAX_CONCURRENT})",
-                })
+                msg = f"Concurrent positions limit exceeded ({self.state['concurrent']} > {RISK_MAX_CONCURRENT})"
+                await manager.broadcast_json({"type": "alert", "level": "warning", "msg": msg})
+                # Discord forwarding (best-effort)
+                try:
+                    from app.db import db_session  # type: ignore
+                    from app.models.settings import AppSettings  # type: ignore
+                    from app.integrations.discord import send_message as discord_send  # type: ignore
+
+                    with db_session() as s:
+                        if s is not None:
+                            settings = s.query(AppSettings).order_by(AppSettings.id.asc()).first()
+                            enabled = bool(settings and settings.discord_alerts_enabled)
+                            url = getattr(settings, "discord_webhook_url", None) if settings else None
+                            types_raw = getattr(settings, "discord_alert_types", "") if settings else ""
+                            types = {t.strip().lower() for t in (types_raw or "").split(",") if t.strip()}
+                            if enabled and url and ((not types) or ("risk" in types)):
+                                await discord_send(url, msg)
+                except Exception:
+                    pass
                 self._last_alerts["concurrent"] = True
             if not self.state["breach_concurrent"] and self._last_alerts.get("concurrent"):
                 self._last_alerts["concurrent"] = False

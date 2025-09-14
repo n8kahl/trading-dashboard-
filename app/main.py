@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.routers.assistant import router as assistant_router
+from app.routers.diag import router as diag_router  # <-- make sure this exists
 
 app = FastAPI(title="Trading Assistant – Stable Exec Layer")
 
@@ -12,4 +13,6 @@ async def all_exception_handler(request: Request, exc: Exception):
 async def health():
     return {"ok": True}
 
+# Mount diag FIRST so it doesn't get lost on merges
+app.include_router(diag_router)
 app.include_router(assistant_router)

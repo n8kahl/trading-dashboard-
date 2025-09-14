@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import re as _re
+from app.utils.cache import memo
 
 # Indicators your code already uses (adjust names only if your services module differs)
 from app.services.indicators import (ema, sma, rsi, macd, atr14, session_vwap_and_sigma, pivots_classic, rvol_5min)
@@ -235,7 +236,28 @@ def filter_and_rank_options(rows: List[Dict[str, Any]], expiry: str, horizon: st
 
 # -------- main exec --------
 @router.post("/exec")
+@memo(ttl=30.0)
+async def _cached_chain_snapshot(poly, symU, opts):
+    return await poly.snapshot_chain(symU, opts)
+
 async def assistant_exec(payload: Dict[str, Any]):
+
+
+    # ---- history safety: opt-in + sane defaults ----
+    if isinstance(args, dict):
+        include = args.get("include") or []
+        if "history" in include:
+            hist = args.setdefault("history", {})
+            hist.setdefault("bars", "1m")
+            hist.setdefault("lookback", 30)
+            try:
+                lb = int(hist.get("lookback", 30))
+                if hist.get("bars") in ("1m","5m","15m") and lb > 300:
+                    hist["lookback"] = 300
+                if hist.get("bars") in ("1d",) and lb > 365:
+                    hist["lookback"] = 365
+            except Exception:
+                hist["lookback"] = 30
     op = payload.get("op"); args = payload.get("args") or {}
     if op not in SUPPORTED_OPS:
         raise HTTPException(status_code=400, detail=f"Unsupported op '{op}'. Use {SUPPORTED_OPS}")

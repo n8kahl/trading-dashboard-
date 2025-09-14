@@ -56,6 +56,20 @@ This document tracks code and docs changes so work can be resumed easily in a ne
 
 ### Later on 2025-09-14 (Moneyness Buckets + Rate Limits)
 
+### Later on 2025-09-14 (Market Overview + Hedge Endpoint)
+
+- Feature: Market overview endpoint
+  - New `GET /api/v1/market/overview` summarizing indices (SPY, QQQ) and sector ETFs.
+  - Returns last, daily change %, intraday VWAP/sigma, RVOL(5), and regime metrics where available.
+  - Includes simple leaders (up/down) and per‑symbol error capture.
+
+- Feature: Hedge/Repair endpoint (Phase 3)
+  - `POST /api/v1/assistant/hedge` with positions → suggestions (vertical cap of naked shorts, protective puts for stock) and NBBO on protective legs.
+  - Computes approximate net Greeks using IV surface buckets and Black‑Scholes.
+
+- Feature: Risk Flags (Phase 5)
+  - Snapshot response includes `context.risk_flags` for quick caution overlays.
+
 - Feature: IV surface moneyness buckets
   - IV surface now groups per expiry by moneyness buckets: `atm` (≤1%), `near` (≤3%), `far` (>3%).
   - Percentiles for each pick are computed from the bucket matching its strike vs last price; falls back to overall list.

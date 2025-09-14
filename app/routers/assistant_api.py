@@ -172,7 +172,7 @@ class ExecRequest(BaseModel):
 
 @router.get("/assistant/actions")
 async def assistant_actions() -> Dict[str, Any]:
-    return {"ok": True, "ops": ["data.snapshot", "assistant.hedge"], "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}, "import_errors": _prov_err}
+    return {"ok": True, "ops": ["data.snapshot", "assistant.hedge", "market.overview"], "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}, "import_errors": _prov_err}
 
 @router.post("/assistant/exec")
 async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:

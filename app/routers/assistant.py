@@ -17,9 +17,16 @@ async def assistant_actions():
 def _auto_expiry(hz: str) -> str:
     today = datetime.utcnow().date()
     if hz in ("scalp","intraday"):
-        days = (4 - today.weekday()) % 7 or 7
+        days = (4 - today.weekday()) % 7 or 7  # nearest Friday, or next
         return str(today + timedelta(days=days))
     return str(today + timedelta(days=14))
+
+def _normalize_expiry(raw, hz: str) -> str:
+    # Treat "auto", "AUTO", True, etc. as auto-compute
+    if raw is None: return _auto_expiry(hz)
+    if isinstance(raw, bool) and raw: return _auto_expiry(hz)
+    if isinstance(raw, str) and raw.strip().lower() == "auto": return _auto_expiry(hz)
+    return str(raw)
 
 @router.post("/exec")
 async def assistant_exec(payload: Dict[str, Any]):
@@ -38,7 +45,7 @@ async def assistant_exec(payload: Dict[str, Any]):
     lookback = int(hist_spec.get("lookback") or (30 if bars_kind=="1m" else 90 if bars_kind=="5m" else 120))
 
     opt_spec = args.get("options") or {}
-    expiry = opt_spec.get("expiry") or _auto_expiry(horizon)
+    expiry = _normalize_expiry(opt_spec.get("expiry"), horizon)
     topK = int(opt_spec.get("topK") or 6)
     max_spread = float(opt_spec.get("maxSpreadPct") or 8.0)
     greeks = bool(opt_spec.get("greeks") if opt_spec.get("greeks") is not None else True)
@@ -54,14 +61,15 @@ async def assistant_exec(payload: Dict[str, Any]):
         out: Dict[str, Any] = {}
         errs: Dict[str, Any] = {}
 
-        # PRICE
+        # PRICE (with daily fallback)
+        last_price = None; last_t = None
         if "price" in include:
             try:
                 lt = await poly.last_trade(symU)
-                out["price"] = {"last": lt.get("price"), "t": lt.get("t")}
+                last_price, last_t = lt.get("price"), lt.get("t")
             except Exception as e:
-                out["price"] = {"last": None, "t": None}
-                errs["price"] = f"{type(e).__name__}: {e}"
+                errs["price.last_trade"] = f"{type(e).__name__}: {e}"
+        out["price"] = {"last": last_price, "t": last_t}
 
         # HISTORY FETCH
         minute_bars = []; daily_bars = []
@@ -70,32 +78,41 @@ async def assistant_exec(payload: Dict[str, Any]):
                 try:
                     minute_bars = await poly.minute_bars_today(symU)
                 except Exception as e:
-                    errs["minute_bars"] = f"{type(e).__name__}: {e}"
-            if bars_kind == "1D" or "indicators" in include or "levels" in include:
-                try:
-                    daily_bars = await poly.daily_bars(symU, lookback=max(lookback, 220))
-                except Exception as e:
-                    errs["daily_bars"] = f"{type(e).__name__}: {e}"
+                    errs["history.1m"] = f"{type(e).__name__}: {e}"
+            try:
+                # ensure we have enough daily bars for ema50/sma200/atr14
+                daily_bars = await poly.daily_bars(symU, lookback=max(lookback, 220))
+            except Exception as e:
+                errs["history.1D"] = f"{type(e).__name__}: {e}"
 
-        # INDICATORS
+        # If price is still None, fallback to last daily close
+        if last_price is None and daily_bars:
+            out["price"]["last"] = daily_bars[-1].get("c")
+            out["price"]["t"] = daily_bars[-1].get("t")
+            errs.setdefault("price.fallback", "used last daily close")
+
+        # INDICATORS (with graceful fallbacks)
         ind: Dict[str, Any] = {"ema1": None, "ema5": None, "ema9": None, "ema20": None, "ema50": None, "sma200": None, "atr14": None}
         try:
-            # intraday EMAs (1,5,9,20) computed off minute/5m closes
-            if minute_bars:
-                closes_m = [b["c"] for b in minute_bars if b.get("c") is not None]
-                ind["ema1"]  = ema(closes_m, 1)   # equals last close; explicit for clarity
+            closes_m = [b["c"] for b in minute_bars if b.get("c") is not None]
+            closes_d = [d["c"] for d in daily_bars if d.get("c") is not None]
+
+            # intraday EMAs
+            if closes_m:
+                ind["ema1"]  = ema(closes_m, 1)   # equals last close
                 ind["ema5"]  = ema(closes_m, 5)
                 ind["ema9"]  = ema(closes_m, 9)
                 ind["ema20"] = ema(closes_m, 20)
             else:
-                # fallback to daily closes for ema9/20 if no intraday history
-                if daily_bars:
-                    closes_d = [d["c"] for d in daily_bars if d.get("c") is not None]
+                # fallback from daily closes (best-effort)
+                if closes_d:
+                    ind["ema1"]  = ema(closes_d, 1)
+                    ind["ema5"]  = ema(closes_d, 5)
                     ind["ema9"]  = ema(closes_d, 9)
                     ind["ema20"] = ema(closes_d, 20)
-            # daily trend EMAs/SMAs
-            if daily_bars:
-                closes_d = [d["c"] for d in daily_bars if d.get("c") is not None]
+
+            # daily trend MAs + ATR
+            if closes_d:
                 ind["ema50"]  = ema(closes_d, 50)
                 ind["sma200"] = sma(closes_d, 200)
                 ind["atr14"]  = atr14(daily_bars)
@@ -103,7 +120,7 @@ async def assistant_exec(payload: Dict[str, Any]):
             errs["indicators"] = f"{type(e).__name__}: {e}"
         out["indicators"] = ind
 
-        # LEVELS (VWAP, ±1σ, HOD/LOD, prev day pivots)
+        # LEVELS
         levels: Dict[str, Any] = {}
         try:
             vwap, sigma = session_vwap_and_sigma(minute_bars) if minute_bars else (None, None)
@@ -137,7 +154,7 @@ async def assistant_exec(payload: Dict[str, Any]):
             errs["micro"] = f"{type(e).__name__}: {e}"
             out["micro"] = {}
 
-        # HISTORY payload
+        # HISTORY payload (downsample for 5m)
         if "history" in include:
             try:
                 if bars_kind == "5m" and minute_bars:
@@ -160,7 +177,7 @@ async def assistant_exec(payload: Dict[str, Any]):
             except Exception as e:
                 errs["history"] = f"{type(e).__name__}: {e}"
 
-        # OPTIONS topK
+        # OPTIONS (Top-K)
         if "options" in include:
             try:
                 chain = await options_chain(symU, expiry, greeks=greeks)
@@ -185,9 +202,9 @@ async def assistant_exec(payload: Dict[str, Any]):
                 out["options"] = {"expiry": expiry, "top": top}
             except Exception as e:
                 out["options"] = {"expiry": expiry, "top": []}
-                snapshot["errors"].setdefault(symU, {})["options"] = f"{type(e).__name__}: {e}"
+                errs["options"] = f"{type(e).__name__}: {e}"
 
-        # REGIME (can use new MAs later)
+        # REGIME (simple)
         trend = None
         try:
             e9 = out.get("indicators",{}).get("ema9")

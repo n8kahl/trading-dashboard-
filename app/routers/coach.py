@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -9,6 +10,10 @@ from pydantic import BaseModel, Field
 
 from app.integrations.chatdata import ChatDataClient
 from app.assistant import actions as actions_mod
+from app.services.compose import build_context_from_polygon
+from app.services.plan_engine import build_plan
+from app.services.risk_engine import assess_risk
+from app.services.scoring_engine import score_confluence
 
 
 router = APIRouter(prefix="/coach", tags=["coach"])
@@ -98,6 +103,40 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     client = ChatDataClient()
     tools = _actions_tooling()
 
+    # Pre-analysis: detect a likely symbol in the last user message and inject compose.analyze result
+    try:
+        last_user = next((m for m in reversed(body.messages) if (m.role or "").lower() == "user"), None)
+        detected: Optional[str] = None
+        if last_user and last_user.content:
+            txt = last_user.content
+            # find uppercase 1-5 letter tokens that look like tickers and are in default watchlist
+            from app.routers.screener import _DEFAULT_WATCHLIST  # type: ignore
+            cands = re.findall(r"\b[A-Z]{1,5}\b", txt)
+            for c in cands:
+                if c in _DEFAULT_WATCHLIST:
+                    detected = c
+                    break
+        if detected:
+            # Compose and analyze quickly (auto strategy) and inject as a system context message
+            ctx = await build_context_from_polygon(detected, None)
+            # If fetch failed, skip
+            if not (isinstance(ctx, dict) and ctx.get("_error")):
+                analysis = score_confluence(ctx, "auto")
+                plan = build_plan("auto", ctx)
+                risk = assess_risk("auto", ctx, analysis, plan)
+                primer = {
+                    "compose": {
+                        "symbol": detected,
+                        "analysis": analysis,
+                        "plan": plan,
+                        "risk": risk,
+                    }
+                }
+                messages.append({"role": "system", "content": json.dumps(primer, separators=(",", ":"))})
+    except Exception:
+        # non-fatal if any precompose step fails
+        pass
+
     hops = 0
     last_response: Dict[str, Any] = {}
     while True:
@@ -147,4 +186,3 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
 
     # fallback (should not reach)
     raise HTTPException(status_code=500, detail={"ok": False, "error": "no_response", "raw": last_response})
-

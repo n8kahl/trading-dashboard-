@@ -7,6 +7,7 @@ from .settings import AppSettings  # ensure table is registered
 from .narrative import Narrative
 from .playbook import PlaybookEntry
 from .broker_order import BrokerOrder
+from .execution_seen import ExecutionSeen
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "Narrative",
     "PlaybookEntry",
     "BrokerOrder",
+    "ExecutionSeen",
 ]

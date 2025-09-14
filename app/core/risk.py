@@ -54,16 +54,37 @@ class RiskEngine:
                         daily_r += float(r)
 
                     # Best-effort execution journaling (dedupe by order id)
+                    # Build a stable dedupe key using id|symbol|time|qty
                     oid = str(tr.get("id") or "")
-                    if oid and oid not in self._seen_exec_ids:
-                        self._seen_exec_ids.add(oid)
+                    sym = str(tr.get("symbol") or "").upper()
+                    ts = tr.get("timestamp") or tr.get("time") or tr.get("date") or ""
+                    qty = tr.get("qty") or tr.get("quantity") or ""
+                    key = oid or f"{sym}|{ts}|{qty}"
+                    if key and key not in self._seen_exec_ids:
+                        self._seen_exec_ids.add(key)
                         try:
                             # local import to avoid import errors in test reloads
                             from app.db import db_session  # type: ignore
                             from app.models.misc import JournalEntry  # type: ignore
+                            from app.models.execution_seen import ExecutionSeen  # type: ignore
 
                             with db_session() as s:
                                 if s is not None:
+                                    # persistent dedupe across restarts
+                                    try:
+                                        exists = (
+                                            s.query(ExecutionSeen)
+                                            .filter(ExecutionSeen.key == str(key))
+                                            .first()
+                                        )
+                                        if exists:
+                                            raise RuntimeError("dup")
+                                        s.add(ExecutionSeen(key=str(key)))
+                                        s.commit()
+                                    except Exception:
+                                        # either exists or insert failed — skip journaling
+                                        pass
+
                                     side = (tr.get("side") or "").lower()
                                     j_side = "long" if side in ("buy", "long") else ("short" if side in ("sell", "short") else None)
                                     notes = f"Execution filled: {side or '?'} {tr.get('qty') or tr.get('quantity') or '?'} {tr.get('symbol') or ''}"

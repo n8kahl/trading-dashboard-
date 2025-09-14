@@ -12,6 +12,10 @@ from app.db import db_session
 from app.models.misc import JournalEntry
 from app.models.broker_order import BrokerOrder
 from app.obs import get_request_id
+from datetime import datetime, timezone
+from app.services.compose import build_context_from_polygon
+from pydantic import BaseModel
+from typing import Literal
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
@@ -146,5 +150,48 @@ async def place_order_endpoint(req: OrderRequest):
         return {"ok": True, "preview": req.preview, "result": res}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # pragma: no cover - unexpected
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MoveStopRequest(BaseModel):
+    symbol: str
+    side: Literal["long", "short"]
+    quantity: int
+    offset_pct: float | None = 0.0005  # 5 bps outside VWAP
+    preview: bool = True
+
+
+@router.post("/move_stop")
+async def move_stop_to_vwap(req: MoveStopRequest):
+    """Compute today's VWAP and place a stop order at VWAP ± offset.
+
+    For long: place sell stop below VWAP.
+    For short: place buy stop above VWAP.
+    """
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        ctx = await build_context_from_polygon(req.symbol, today)
+        vwap = (ctx or {}).get("vwap")
+        if vwap is None:
+            raise HTTPException(status_code=400, detail="VWAP unavailable for symbol (insufficient data)")
+        off = abs((req.offset_pct or 0.0005) * float(vwap))
+        if req.side == "long":
+            stop_price = float(vwap) - off
+            side = "sell"
+        else:
+            stop_price = float(vwap) + off
+            side = "buy"
+        order = StrategyOrder(
+            symbol=req.symbol.upper(),
+            side=side,  # sell for long, buy for short
+            quantity=int(req.quantity),
+            order_type="stop",
+            stop_price=stop_price,
+        )
+        res = await tradier_place_order(order, preview=req.preview)
+        return {"ok": True, "preview": req.preview, "computed": {"vwap": vwap, "stop_price": stop_price}, "result": res}
+    except HTTPException:
+        raise
     except Exception as e:  # pragma: no cover - unexpected
         raise HTTPException(status_code=500, detail=str(e))

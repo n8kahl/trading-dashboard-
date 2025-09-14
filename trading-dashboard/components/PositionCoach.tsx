@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useEventSource } from "@/src/lib/useEventSource";
+import { useRisk, usePositions } from "@/src/lib/store";
 
 type Props = { symbol: string; positionId?: string | null };
 
@@ -13,7 +14,9 @@ export default function PositionCoach({ symbol, positionId }: Props) {
   const next = Array.isArray(g?.if_then) && g.if_then.length ? (g.if_then[0] || {}) : {};
   const unless = g?.risk_notes || g?.unless || "—";
 
-  const disabled = false; // TODO: bound to risk breach from store
+  const risk = useRisk();
+  const positions = usePositions();
+  const disabled = !!(risk?.breach_daily_r || risk?.breach_concurrent);
 
   const postJson = async (path: string, body: any) => {
     const res = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, {
@@ -32,7 +35,30 @@ export default function PositionCoach({ symbol, positionId }: Props) {
     try { await postJson("/broker/tradier/order", { symbol, side: "sell", quantity: qty, order_type: "market", preview: true }); alert("Trim preview sent"); } catch(e:any){ alert(e?.message ?? String(e)); }
   };
   const onMoveStopToVWAP = async () => {
-    try { await postJson("/journal/create", { symbol, notes: "Move stop to VWAP (coach action)" }); alert("Noted: Move stop to VWAP"); } catch(e:any){ alert(e?.message ?? String(e)); }
+    const pos = (positions || []).find((p:any)=> (p.symbol||'').toUpperCase()===symbol.toUpperCase());
+    let qty = Math.abs(Number(pos?.qty ?? 0)) || NaN;
+    let side: 'long'|'short' = (Number(pos?.qty ?? 0) >= 0 ? 'long' : 'short');
+    if (!Number.isFinite(qty) || qty<=0) {
+      const s = window.prompt('Position side (long/short)', 'long');
+      if (!s) return;
+      side = (s.toLowerCase()==='short' ? 'short' : 'long');
+      const q = window.prompt('Quantity to protect (shares)', '1');
+      qty = q ? Number(q) : NaN;
+    }
+    if (!Number.isFinite(qty) || qty<=0) return;
+    try { const res = await postJson('/broker/tradier/move_stop', { symbol, side, quantity: qty, preview: true }); alert(`Stop preview at VWAP: ${res?.computed?.stop_price ?? ''}`); } catch(e:any){ alert(e?.message ?? String(e)); }
+  };
+
+  const onTakeProfitTp1 = async () => {
+    const tp1 = g?.stops?.tp1 ?? g?.tp1;
+    if (tp1 === undefined || tp1 === null) { alert('No TP1 available'); return; }
+    const pos = (positions || []).find((p:any)=> (p.symbol||'').toUpperCase()===symbol.toUpperCase());
+    let qty = Math.floor((Math.abs(Number(pos?.qty ?? 0)) || 0)/2) || 1;
+    const q = window.prompt('Take profit quantity', String(qty));
+    qty = q ? Number(q) : NaN;
+    if (!Number.isFinite(qty) || qty<=0) return;
+    const side = (Number(pos?.qty ?? 0) >= 0 ? 'sell' : 'buy');
+    try { await postJson('/broker/tradier/order', { symbol, side, quantity: qty, order_type: 'limit', limit_price: Number(tp1), preview: true }); alert('TP1 preview sent'); } catch(e:any){ alert(e?.message ?? String(e)); }
   };
   const onClose = async () => {
     const qtyStr = window.prompt("Close quantity (shares)", "1");
@@ -64,6 +90,7 @@ export default function PositionCoach({ symbol, positionId }: Props) {
       <div style={{display:"flex", gap:8, marginTop:10, flexWrap:"wrap"}}>
         <button className="secondary" disabled={disabled} onClick={onTrim}>Trim</button>
         <button className="secondary" disabled={disabled} onClick={onMoveStopToVWAP}>Move Stop → VWAP</button>
+        <button className="secondary" disabled={disabled} onClick={onTakeProfitTp1}>TP1</button>
         <button className="secondary" disabled={disabled} onClick={onClose}>Close</button>
       </div>
     </section>

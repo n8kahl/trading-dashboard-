@@ -1,0 +1,64 @@
+openapi: 3.1.0
+info:
+  title: Trading Assistant – Stable Exec Layer
+  version: "1.0.1"
+servers:
+  - url: https://web-production-a9084.up.railway.app
+
+paths:
+  /api/v1/diag/health:
+    get:
+      operationId: health
+      summary: Health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+  /api/v1/assistant/actions:
+    get:
+      operationId: assistantActions
+      summary: List supported operations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+  /api/v1/assistant/exec:
+    post:
+      operationId: assistantExec
+      summary: Execute an operation with nested args
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [op, args]
+              properties:
+                op:
+                  type: string
+                  example: options.pick
+                args:
+                  $ref: "#/components/schemas/FreeFormObject"
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+components:
+  schemas:
+    # Permissive object that satisfies strict validators
+    FreeFormObject:
+      type: object
+      properties: {}
+      additionalProperties: true

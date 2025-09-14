@@ -3,9 +3,10 @@ import importlib
 import logging
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 
 from app.core.risk import start_risk_engine
 from app.core.ws import start_ws, websocket_endpoint
@@ -15,6 +16,7 @@ from app.services.poller import alerts_poller
 from app.services.stream import STREAM
 from app.db import db_session
 from app.models.settings import AppSettings
+from app.obs import new_request_id, log_event
 
 
 @asynccontextmanager
@@ -55,6 +57,43 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
+
+
+# --- Observability: request ID + access log ---
+@app.middleware("http")
+async def request_id_and_timing(request: Request, call_next):
+    rid = new_request_id()
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        status = response.status_code
+    except Exception as e:
+        # Log error with rid and re-raise
+        dur_ms = int((time.perf_counter() - start) * 1000)
+        log_event(
+            "http.error",
+            level="error",
+            method=request.method,
+            path=str(request.url.path),
+            status=None,
+            dur_ms=dur_ms,
+            error=str(e),
+        )
+        raise
+    dur_ms = int((time.perf_counter() - start) * 1000)
+    # Add correlation header(s)
+    response.headers["X-Request-ID"] = rid
+    response.headers["X-Process-Time-Ms"] = str(dur_ms)
+    # Access log
+    log_event(
+        "http.access",
+        method=request.method,
+        path=str(request.url.path),
+        status=status,
+        dur_ms=dur_ms,
+        client=str(request.client.host) if request.client else None,
+    )
+    return response
 
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,18 +164,24 @@ _mount("app.routers.diag")  # if present in your repo
 _mount("app.routers.diag_config")  # if present
 _mount("app.routers.screener")  # if present
 _mount("app.routers.options", secure=True)  # we just created this
-_mount("app.routers.alerts")  # if present
-_mount("app.routers.plan")  # if present
-_mount("app.routers.sizing")  # if present
-_mount("app.routers.compose_analyze")  # if present
+_mount("app.routers.alerts", secure=True)  # sensitive
+_mount("app.routers.plan", secure=True)  # sensitive
+_mount("app.routers.sizing", secure=True)  # sensitive
+_mount("app.routers.compose_analyze", secure=True)  # sensitive
 _mount("app.routers.admin")  # if present
 _mount("app.routers.broker", secure=True)  # new broker routes
 _mount("app.routers.broker_tradier", secure=True)  # tradier broker routes
 _mount("app.routers.auto", secure=True)  # auto-trade
-_mount("app.routers.stream")  # stream snapshot
-_mount("app.routers.coach")  # chat-data.com coach chat
-_mount("app.routers.journal")  # journal CRUD
+_mount("app.routers.stream", secure=True)  # stream snapshot (positions/orders/risk/prices)
+_mount("app.routers.coach", secure=True)  # chat-data.com coach chat
+_mount("app.routers.coach_stream", secure=True)  # SSE narrator stream
+_mount("app.routers.journal", secure=True)  # journal CRUD
+_mount("app.routers.trades", secure=True)  # trade endpoints if present
 _mount("app.routers.settings", secure=True)  # admin settings CRUD
+
+# auth + news
+_mount("app.routers.auth")  # ws-token mint
+_mount("app.routers.news")  # polygon-backed news
 
 # assistant router (simple)
 _mount("app.routers.assistant_simple", secure=True)

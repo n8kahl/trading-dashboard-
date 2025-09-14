@@ -18,10 +18,7 @@ type Settings = {
 
 export default function SettingsPage() {
 
-  const { data, isPending, error } = useQuery({
-
   const { data, isLoading, error } = useQuery({
-
     queryKey: ["settings"],
     queryFn: async (): Promise<Settings> => (await apiGet("/api/v1/settings/get")).settings,
   });
@@ -37,10 +34,7 @@ export default function SettingsPage() {
     <main className="container">
       <h1 style={{marginBottom:12}}>Admin Settings</h1>
 
-      {isPending ? "Loading…" : error ? String(error) : (
-
-      {isLoading ? "Loading…" : error ? String(error) : (
-
+  {isLoading ? "Loading…" : error ? String(error) : (
         <section className="card" style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:12}}>
           <label>Daily loss cap (R)
             <input className="input" value={local?.risk_daily_r ?? ''} onChange={e=>setLocal(v=>({...v!, risk_daily_r: e.target.value?Number(e.target.value):null}))} />

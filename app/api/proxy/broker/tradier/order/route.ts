@@ -6,11 +6,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
+    const apiKey = process.env.API_KEY
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (apiKey) headers["x-api-key"] = apiKey
+
     const response = await fetch(`${API_BASE_URL}/broker/tradier/order`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(body),
     })
 

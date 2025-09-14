@@ -8,6 +8,10 @@ from app.services.tradier_trading import (
 from app.services.tradier_trading import (
     place_order as tradier_place_order,
 )
+from app.db import db_session
+from app.models.misc import JournalEntry
+from app.models.broker_order import BrokerOrder
+from app.obs import get_request_id
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
@@ -74,6 +78,71 @@ async def place_order_endpoint(req: OrderRequest):
     try:
         order = StrategyOrder.model_validate(req.model_dump())
         res = await tradier_place_order(order, preview=req.preview)
+
+        # Persist broker order audit (best-effort)
+        try:
+            with db_session() as session:
+                if session is not None:
+                    status = None
+                    try:
+                        status = ((res or {}).get("order") or {}).get("status") or (res.get("status") if isinstance(res, dict) else None)
+                    except Exception:
+                        status = None
+                    audit = BrokerOrder(
+                        symbol=order.symbol.upper(),
+                        side=order.side,
+                        quantity=order.quantity,
+                        order_type=order.order_type,
+                        limit_price=order.limit_price,
+                        duration=order.duration,
+                        bracket_stop=order.bracket_stop,
+                        bracket_target=order.bracket_target,
+                        preview=req.preview,
+                        request_id=get_request_id(),
+                        status=status,
+                        broker_response=res if isinstance(res, dict) else {"raw": str(res)},
+                    )
+                    session.add(audit)
+                    session.commit()
+        except Exception:
+            pass
+
+        # On actual placement (non-preview), attempt to create a journal entry summarizing the order
+        if not req.preview:
+            try:
+                with db_session() as session:
+                    if session is not None:
+                        side = "long" if (order.side or "buy") == "buy" else "short"
+                        bracket = None
+                        if order.bracket_stop is not None and order.bracket_target is not None:
+                            bracket = {"stop": order.bracket_stop, "target": order.bracket_target}
+                        notes = (
+                            f"Placed {order.order_type.upper()} {order.symbol.upper()} x{order.quantity} ({side})"
+                            + (f" with bracket SL {order.bracket_stop} / TP {order.bracket_target}" if bracket else "")
+                        )
+                        entry = JournalEntry(
+                            symbol=order.symbol.upper(),
+                            side=side,
+                            notes=notes,
+                            meta={
+                                "order": {
+                                    "symbol": order.symbol.upper(),
+                                    "quantity": order.quantity,
+                                    "side": order.side,
+                                    "type": order.order_type,
+                                    "limit_price": order.limit_price,
+                                    "duration": order.duration,
+                                    "bracket": bracket,
+                                },
+                                "broker_result": res,
+                            },
+                        )
+                        session.add(entry)
+                        session.commit()
+            except Exception:
+                # best-effort journaling: ignore errors
+                pass
+
         return {"ok": True, "preview": req.preview, "result": res}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))

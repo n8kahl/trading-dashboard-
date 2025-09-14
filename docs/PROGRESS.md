@@ -1,3 +1,35 @@
+# Progress — 2025-09-14
+
+Summary
+- Phase 1 (R1–R4) done. Phase 2 (Y1) done. Phase 3 started (Y2 snapshot-on-connect).
+- Added `/api/v1/auth/ws-token`, `/api/v1/news`, and `/api/v1/coach/stream` (SSE narrator). Secured sensitive routers including stream state.
+- `/api/v1/stream/state` now returns positions, orders, risk, stream status, and last prices for watched symbols.
+- Alembic baseline ready; tests green (43 passed).
+
+Security & Platform
+- API key hardening: `app/security.py` now denies by default when `API_KEY` is unset; mismatches return 401.
+- Sensitive routers gated via dependency in `app/main.py`.
+- WS auth: optional short‑lived token via `/api/v1/auth/ws-token`; WS also accepts legacy `?api_key=`.
+
+News
+- Polygon-backed headlines: `GET /api/v1/news?symbols=SPY,AAPL&limit=12`, 120s cache and URL de‑dupe, graceful empty if key missing.
+
+Database
+- Alembic scaffolded (`alembic.ini`, `alembic/env.py`, `alembic/versions/0001_baseline.py`).
+- Models added: `app/models/narrative.py`, `app/models/playbook.py`.
+
+Phase 2 — Completed
+- Y1: SSE Trade Narrator `/api/v1/coach/stream` implemented; streams JSON every ~3s; best‑effort persistence to `narratives`.
+
+Phase 3 — In Progress
+- Y2: Snapshot on connect implemented via `/api/v1/stream/state` (secured).
+- R5: Bracket orders supported (Tradier): backend endpoint accepts `duration`, `bracket_stop`, `bracket_target`; preview/place flows; non‑preview placements journal a summary entry.
+- Y3: Observability added — request IDs via middleware, structured JSON logs, and timing logs for Tradier (orders/cancel) and ChatData requests. Each response includes `X-Request-ID` and `X-Process-Time-Ms` headers.
+- Y5: Per‑IP sliding window rate limiting added for `/api/v1/news` (default 30/min/IP) and `/api/v1/coach/stream` (default 10/min/IP). Tunable via env: `RATE_LIMIT_NEWS_PER_MIN`, `RATE_LIMIT_COACH_PER_MIN`.
+- Y4: SSE backpressure added — coach stream emits every ~3s but only pushes data when price moves beyond `SSE_MIN_PRICE_DELTA_PCT` (default 0.1%), risk flags change, or guidance action/band/±confidence (>= `SSE_MIN_CONFIDENCE_DELTA`, default 5) change. Sends heartbeat comments every `SSE_HEARTBEAT_SEC` (default 15s).
+- Y6: Broker/journal auditing — all Tradier order previews/placements are persisted to `broker_orders` (request + response, request ID). Non‑preview orders also log a concise summary in `journal_entries`. Narrator guidance continues to persist in `narratives`.
+
+—
 # Progress — 2025-09-13
 
 
@@ -64,4 +96,3 @@ Next Implementation Targets
 Notes for Ops
 - If Vercel deploy still reports 250 MB function size, confirm all API routes are Edge (only the proxy exists) and that the project builds from `trading-dashboard/`.
 - Verify domain attachment in Vercel Settings → Domains. Default alias appears as `trading-dashboard-n8kahls-projects.vercel.app`.
-

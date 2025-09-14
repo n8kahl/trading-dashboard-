@@ -1,8 +1,0 @@
-target-version = "py313"
-line-length = 120
-extend-exclude = ["__pycache__", ".venv"]
-
-[lint]
-select = ["E","F","I"]
-ignore = ["E501"]  # ignore long lines
-per-file-ignores = { "tests/*" = ["E402"] }  # import-at-top often noisy in tests

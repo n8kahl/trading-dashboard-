@@ -13,6 +13,22 @@ from app.engine.regime import analyze as regime_analyze
 from app.engine.options_scoring import tradeability_score, ScoreWeights, expected_move_from_straddle, probability_of_touch
 from app.engine.position_guidance import dynamic_trailing_stop, scale_plan, adjust_targets_for_em
 
+# Providers (robust dynamic import so we don't break header again)
+from importlib import import_module as _import_module
+try:
+    PolygonMarket = getattr(_import_module("app.services.providers.polygon_market"), "PolygonMarket")
+except Exception as _e:
+    PolygonMarket = None
+    _PROVIDERS_IMPORT_ERR = f"PolygonMarket import failed: {type(_e).__name__}: {_e}"
+
+try:
+    TradierClient = getattr(_import_module("app.services.providers.tradier"), "TradierClient")
+except Exception as _e:
+    # chain error notes; keep going so module still loads
+    _PROVIDERS_IMPORT_ERR = (_PROVIDERS_IMPORT_ERR + " | " if "PROVIDERS_IMPORT_ERR" in globals() else "") + f"TradierClient import failed: {type(_e).__name__}: {_e}"
+    TradierClient = None
+
+
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 SUPPORTED_OPS = ["data.snapshot"]
 

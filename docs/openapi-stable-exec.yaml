@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Trading Assistant – Stable Exec Layer
-  version: "1.0.1"
+  version: "1.1.0"
 servers:
   - url: https://web-production-a9084.up.railway.app
 
@@ -44,12 +44,65 @@ paths:
               properties:
                 op:
                   type: string
-                  example: options.pick
+                  example: data.snapshot
                 args:
                   $ref: "#/components/schemas/FreeFormObject"
       responses:
         "200":
           description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+  /api/v1/diag/providers:
+    get:
+      operationId: diagProviders
+      summary: Provider readiness and resolved base URLs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+  /api/v1/market/overview:
+    get:
+      operationId: market_overview
+      summary: Market overview for indices and sector ETFs
+      parameters:
+        - in: query
+          name: indices
+          schema:
+            type: string
+          description: CSV list of indices (e.g., SPY,QQQ)
+        - in: query
+          name: sectors
+          schema:
+            type: string
+          description: CSV list of sector ETFs (e.g., XLK,XLV,XLF,...)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FreeFormObject"
+
+  /api/v1/assistant/hedge:
+    post:
+      operationId: assistant_hedge
+      summary: Generate hedge/repair suggestions for positions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FreeFormObject"
+      responses:
+        "200":
+          description: OK
           content:
             application/json:
               schema:

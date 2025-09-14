@@ -22,35 +22,39 @@ async def assistant_exec(payload: Dict[str, Any]):
     op = payload.get("op")
     args = payload.get("args") or {}
     if op not in SUPPORTED_OPS:
-        raise HTTPException(400, f"Unsupported op '{op}'. Use one of {SUPPORTED_OPS}")
+        raise HTTPException(status_code=400, detail=f"Unsupported op '{op}'. Use one of {SUPPORTED_OPS}")
 
-    # Minimal stub responses
+    # Minimal stub results so API is live while providers are wired.
     if op == "context.symbol":
         sym = (args.get("symbol") or "").upper()
         if not sym:
-            raise HTTPException(400, "args.symbol required")
-        return {"ok": True, "context": {"symbol": sym, "price": None, "vwap": None,
-                "ema": {"ema9": None, "ema20": None}, "atr": {"atr14": None, "regime": "normal"},
-                "flow": {"rvol": None, "liquidity": "unknown", "spread": None},
-                "confidence": {"score": 50, "band": "mixed", "components": {}},
-                "risk": {"day_r_used": None, "max_r": None, "breach_flags": {"max_day_loss": False}},
-                "position": None, "stale": False}}
+            raise HTTPException(status_code=400, detail="args.symbol required")
+        return {"ok": True, "context": {
+            "symbol": sym, "price": None, "vwap": None,
+            "ema": {"ema9": None, "ema20": None},
+            "atr": {"atr14": None, "regime": "normal"},
+            "flow": {"rvol": None, "liquidity": "unknown", "spread": None},
+            "confidence": {"score": 50, "band": "mixed", "components": {}},
+            "risk": {"day_r_used": None, "max_r": None, "breach_flags": {"max_day_loss": False}},
+            "position": None, "stale": False
+        }}
 
     if op == "context.account":
-        return {"ok": True, "account": {"bp": None,
-                "risk_rules": {"max_day_r": -2.0, "max_concurrent": 3},
-                "positions": [], "open_orders": []}}
+        return {"ok": True, "account": {
+            "bp": None, "risk_rules": {"max_day_r": -2.0, "max_concurrent": 3},
+            "positions": [], "open_orders": []
+        }}
 
     if op == "market.quote":
         sym = (args.get("symbol") or "").upper()
         if not sym:
-            raise HTTPException(400, "args.symbol required")
+            raise HTTPException(status_code=400, detail="args.symbol required")
         return {"ok": True, "quote": {"symbol": sym, "bid": None, "ask": None}}
 
     if op == "options.chain":
         sym = (args.get("symbol") or "").upper()
         if not sym:
-            raise HTTPException(400, "args.symbol required")
+            raise HTTPException(status_code=400, detail="args.symbol required")
         return {"ok": True, "chain": {"symbol": sym, "items": []}}
 
     if op == "positions.list":
@@ -60,17 +64,18 @@ async def assistant_exec(payload: Dict[str, Any]):
         sym = (args.get("symbol") or "").upper()
         hz  = (args.get("horizon") or "intraday").lower()
         if not sym:
-            raise HTTPException(400, "args.symbol required")
+            raise HTTPException(status_code=400, detail="args.symbol required")
         if hz not in {"scalp","intraday","swing"}:
-            raise HTTPException(400, "args.horizon must be scalp|intraday|swing"}
+            raise HTTPException(status_code=400, detail="args.horizon must be scalp|intraday|swing")
         return {"ok": True, "guidance": {
             "horizon": hz, "band": "mixed",
             "actionable": "If 1m closes above VWAP and spread acceptable, consider starter; else wait.",
             "rationale": ["Placeholder"],
-            "if_then": [{"if": "1m close > VWAP", "then": "starter long; stop below prior HL"}],
+            "if_then": [{"if":"1m close > VWAP","then":"starter long; stop below prior HL"}],
             "levels": {"entry": None, "stop": None, "targets": []},
             "risk_notes": "Educational guidance only.",
             "confidence_delta": {"score": None, "delta_vs_prev": None}
         }}
 
-    raise HTTPException(500, "unhandled op")
+    # Fallback safeguard
+    raise HTTPException(status_code=500, detail="unhandled op")

@@ -10,6 +10,8 @@ from app.services.tradier_trading import (
 )
 from app.db import db_session
 from app.models.misc import JournalEntry
+from app.models.broker_order import BrokerOrder
+from app.obs import get_request_id
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
@@ -76,6 +78,34 @@ async def place_order_endpoint(req: OrderRequest):
     try:
         order = StrategyOrder.model_validate(req.model_dump())
         res = await tradier_place_order(order, preview=req.preview)
+
+        # Persist broker order audit (best-effort)
+        try:
+            with db_session() as session:
+                if session is not None:
+                    status = None
+                    try:
+                        status = ((res or {}).get("order") or {}).get("status") or (res.get("status") if isinstance(res, dict) else None)
+                    except Exception:
+                        status = None
+                    audit = BrokerOrder(
+                        symbol=order.symbol.upper(),
+                        side=order.side,
+                        quantity=order.quantity,
+                        order_type=order.order_type,
+                        limit_price=order.limit_price,
+                        duration=order.duration,
+                        bracket_stop=order.bracket_stop,
+                        bracket_target=order.bracket_target,
+                        preview=req.preview,
+                        request_id=get_request_id(),
+                        status=status,
+                        broker_response=res if isinstance(res, dict) else {"raw": str(res)},
+                    )
+                    session.add(audit)
+                    session.commit()
+        except Exception:
+            pass
 
         # On actual placement (non-preview), attempt to create a journal entry summarizing the order
         if not req.preview:

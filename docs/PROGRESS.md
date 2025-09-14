@@ -27,6 +27,7 @@ Phase 3 — In Progress
 - Y3: Observability added — request IDs via middleware, structured JSON logs, and timing logs for Tradier (orders/cancel) and ChatData requests. Each response includes `X-Request-ID` and `X-Process-Time-Ms` headers.
 - Y5: Per‑IP sliding window rate limiting added for `/api/v1/news` (default 30/min/IP) and `/api/v1/coach/stream` (default 10/min/IP). Tunable via env: `RATE_LIMIT_NEWS_PER_MIN`, `RATE_LIMIT_COACH_PER_MIN`.
 - Y4: SSE backpressure added — coach stream emits every ~3s but only pushes data when price moves beyond `SSE_MIN_PRICE_DELTA_PCT` (default 0.1%), risk flags change, or guidance action/band/±confidence (>= `SSE_MIN_CONFIDENCE_DELTA`, default 5) change. Sends heartbeat comments every `SSE_HEARTBEAT_SEC` (default 15s).
+- Y6: Broker/journal auditing — all Tradier order previews/placements are persisted to `broker_orders` (request + response, request ID). Non‑preview orders also log a concise summary in `journal_entries`. Narrator guidance continues to persist in `narratives`.
 
 —
 # Progress — 2025-09-13

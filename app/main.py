@@ -125,18 +125,23 @@ _mount("app.routers.diag")  # if present in your repo
 _mount("app.routers.diag_config")  # if present
 _mount("app.routers.screener")  # if present
 _mount("app.routers.options", secure=True)  # we just created this
-_mount("app.routers.alerts")  # if present
-_mount("app.routers.plan")  # if present
-_mount("app.routers.sizing")  # if present
-_mount("app.routers.compose_analyze")  # if present
+_mount("app.routers.alerts", secure=True)  # sensitive
+_mount("app.routers.plan", secure=True)  # sensitive
+_mount("app.routers.sizing", secure=True)  # sensitive
+_mount("app.routers.compose_analyze", secure=True)  # sensitive
 _mount("app.routers.admin")  # if present
 _mount("app.routers.broker", secure=True)  # new broker routes
 _mount("app.routers.broker_tradier", secure=True)  # tradier broker routes
 _mount("app.routers.auto", secure=True)  # auto-trade
 _mount("app.routers.stream")  # stream snapshot
-_mount("app.routers.coach")  # chat-data.com coach chat
-_mount("app.routers.journal")  # journal CRUD
+_mount("app.routers.coach", secure=True)  # chat-data.com coach chat
+_mount("app.routers.journal", secure=True)  # journal CRUD
+_mount("app.routers.trades", secure=True)  # trade endpoints if present
 _mount("app.routers.settings", secure=True)  # admin settings CRUD
+
+# auth + news
+_mount("app.routers.auth")  # ws-token mint
+_mount("app.routers.news")  # polygon-backed news
 
 # assistant router (simple)
 _mount("app.routers.assistant_simple", secure=True)

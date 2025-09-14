@@ -23,7 +23,9 @@ Phase 2 — Completed
 
 Phase 3 — In Progress
 - Y2: Snapshot on connect implemented via `/api/v1/stream/state` (secured).
-- Next: R5 (OCO/bracket orders), Y3 (observability: request IDs, timing), Y5 (per‑IP rate limiting), Y4 (SSE cadence/delta rules).
+- R5: Bracket orders supported (Tradier): backend endpoint accepts `duration`, `bracket_stop`, `bracket_target`; preview/place flows; non‑preview placements journal a summary entry.
+- Y3: Observability added — request IDs via middleware, structured JSON logs, and timing logs for Tradier (orders/cancel) and ChatData requests. Each response includes `X-Request-ID` and `X-Process-Time-Ms` headers.
+- Next: Y5 (per‑IP rate limiting), Y4 (SSE cadence/delta rules).
 
 —
 # Progress — 2025-09-13

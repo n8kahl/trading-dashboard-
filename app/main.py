@@ -3,9 +3,10 @@ import importlib
 import logging
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 
 from app.core.risk import start_risk_engine
 from app.core.ws import start_ws, websocket_endpoint
@@ -15,6 +16,7 @@ from app.services.poller import alerts_poller
 from app.services.stream import STREAM
 from app.db import db_session
 from app.models.settings import AppSettings
+from app.obs import new_request_id, log_event
 
 
 @asynccontextmanager
@@ -55,6 +57,43 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="Trading Assistant", version="0.0.1")
+
+
+# --- Observability: request ID + access log ---
+@app.middleware("http")
+async def request_id_and_timing(request: Request, call_next):
+    rid = new_request_id()
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+        status = response.status_code
+    except Exception as e:
+        # Log error with rid and re-raise
+        dur_ms = int((time.perf_counter() - start) * 1000)
+        log_event(
+            "http.error",
+            level="error",
+            method=request.method,
+            path=str(request.url.path),
+            status=None,
+            dur_ms=dur_ms,
+            error=str(e),
+        )
+        raise
+    dur_ms = int((time.perf_counter() - start) * 1000)
+    # Add correlation header(s)
+    response.headers["X-Request-ID"] = rid
+    response.headers["X-Process-Time-Ms"] = str(dur_ms)
+    # Access log
+    log_event(
+        "http.access",
+        method=request.method,
+        path=str(request.url.path),
+        status=status,
+        dur_ms=dur_ms,
+        client=str(request.client.host) if request.client else None,
+    )
+    return response
 
 # --- CORS (allow dashboard & localhost) ---
 from fastapi.middleware.cors import CORSMiddleware

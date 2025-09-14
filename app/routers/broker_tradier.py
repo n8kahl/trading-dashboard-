@@ -8,6 +8,8 @@ from app.services.tradier_trading import (
 from app.services.tradier_trading import (
     place_order as tradier_place_order,
 )
+from app.db import db_session
+from app.models.misc import JournalEntry
 
 router = APIRouter(prefix="/broker/tradier", tags=["broker-tradier"])
 
@@ -74,6 +76,43 @@ async def place_order_endpoint(req: OrderRequest):
     try:
         order = StrategyOrder.model_validate(req.model_dump())
         res = await tradier_place_order(order, preview=req.preview)
+
+        # On actual placement (non-preview), attempt to create a journal entry summarizing the order
+        if not req.preview:
+            try:
+                with db_session() as session:
+                    if session is not None:
+                        side = "long" if (order.side or "buy") == "buy" else "short"
+                        bracket = None
+                        if order.bracket_stop is not None and order.bracket_target is not None:
+                            bracket = {"stop": order.bracket_stop, "target": order.bracket_target}
+                        notes = (
+                            f"Placed {order.order_type.upper()} {order.symbol.upper()} x{order.quantity} ({side})"
+                            + (f" with bracket SL {order.bracket_stop} / TP {order.bracket_target}" if bracket else "")
+                        )
+                        entry = JournalEntry(
+                            symbol=order.symbol.upper(),
+                            side=side,
+                            notes=notes,
+                            meta={
+                                "order": {
+                                    "symbol": order.symbol.upper(),
+                                    "quantity": order.quantity,
+                                    "side": order.side,
+                                    "type": order.order_type,
+                                    "limit_price": order.limit_price,
+                                    "duration": order.duration,
+                                    "bracket": bracket,
+                                },
+                                "broker_result": res,
+                            },
+                        )
+                        session.add(entry)
+                        session.commit()
+            except Exception:
+                # best-effort journaling: ignore errors
+                pass
+
         return {"ok": True, "preview": req.preview, "result": res}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))

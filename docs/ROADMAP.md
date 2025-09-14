@@ -43,11 +43,12 @@ Last reviewed: 2025-09-14
 
 ## Upcoming (YELLOW/GREEN)
 - [x] Y2 — Snapshot on connect: `/api/v1/stream/state` to seed frontend before ticks. (implemented)
-- [ ] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
+- [x] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
 - [ ] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
 - [ ] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [ ] Y6 — Broker/journal auditing: persist placed orders + narrator guidance.
 - [ ] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.
+- [x] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.
 ## M5 — Discord Alerts
 - [ ] Settings: webhook URL, enable toggle, allowed alert types (e.g., price_above, price_below, risk).
 - [ ] Poller forwards triggers to Discord when enabled and type matches.

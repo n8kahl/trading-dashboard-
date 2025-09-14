@@ -361,6 +361,9 @@ class PlaceOrderArgs(BaseModel):
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit"] = "market"
     limit_price: Optional[float] = None
+    duration: Literal["day", "gtc"] = "day"
+    bracket_stop: Optional[float] = None
+    bracket_target: Optional[float] = None
     preview: bool = True
 
 
@@ -457,7 +460,7 @@ _ASSISTANT_EXTRA_OPS: Dict[str, Dict[str, Any]] = {
     },
     "broker.place_order": {
         "title": "Place order via Tradier sandbox",
-        "description": "Preview or place an order using Tradier",
+        "description": "Preview/place order; supports bracket with stop/target when provided.",
         "args_model": PlaceOrderArgs,
         "handler": _h_broker_place_order,
     },

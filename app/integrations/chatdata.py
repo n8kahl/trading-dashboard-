@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
+from app.obs import log_event, get_request_id
 
 
 class ChatDataClient:
@@ -57,7 +59,16 @@ class ChatDataClient:
             "Content-Type": "application/json",
         }
 
+        # Correlate with request id if present
+        rid = get_request_id()
+        if rid:
+            headers["X-Request-ID"] = rid
+
         async with httpx.AsyncClient(timeout=60.0) as client:
+            log_event("chatdata.request", url=self.url, has_tools=bool(tools), stream=stream)
+            start = time.perf_counter()
             r = await client.post(self.url, json=payload, headers=headers)
+            dur_ms = int((time.perf_counter() - start) * 1000)
+            log_event("chatdata.timing", status=r.status_code, dur_ms=dur_ms)
         r.raise_for_status()
         return r.json()

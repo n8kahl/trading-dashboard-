@@ -1,3 +1,29 @@
+# Progress — 2025-09-14
+
+Summary
+- Closed RED items R1–R4: strict API key gate, sensitive router protection, optional WS tokens, Polygon-backed news, Alembic baseline migrations.
+- Added `/api/v1/auth/ws-token` and `/api/v1/news` routes; secured coach, broker, plan, sizing, alerts, journal, settings, compose/analyze.
+- Alembic initialized with `narratives` and `playbook_entries`; `alembic upgrade head` can run when `DATABASE_URL` is set.
+- All tests pass locally (43 passed).
+
+Security & Platform
+- API key hardening: `app/security.py` now denies by default when `API_KEY` is unset; mismatches return 401.
+- Sensitive routers gated via dependency in `app/main.py`.
+- WS auth: optional short‑lived token via `/api/v1/auth/ws-token`; WS also accepts legacy `?api_key=`.
+
+News
+- Polygon-backed headlines: `GET /api/v1/news?symbols=SPY,AAPL&limit=12`, 120s cache and URL de‑dupe, graceful empty if key missing.
+
+Database
+- Alembic scaffolded (`alembic.ini`, `alembic/env.py`, `alembic/versions/0001_baseline.py`).
+- Models added: `app/models/narrative.py`, `app/models/playbook.py`.
+
+Next Up
+- Y1: SSE Trade Narrator `/api/v1/coach/stream` with Chat Data client and debounce.
+- R5: Tradier OCO/bracket order preview/place with journaling.
+- Y3/Y5: Observability (request IDs, timing) and per‑IP rate limiting.
+
+—
 # Progress — 2025-09-13
 
 
@@ -64,4 +90,3 @@ Next Implementation Targets
 Notes for Ops
 - If Vercel deploy still reports 250 MB function size, confirm all API routes are Edge (only the proxy exists) and that the project builds from `trading-dashboard/`.
 - Verify domain attachment in Vercel Settings → Domains. Default alias appears as `trading-dashboard-n8kahls-projects.vercel.app`.
-

@@ -18,6 +18,13 @@ What We Need To Verify
 
 Runtime Checklist
 - Environment variables (on Vercel Project → Settings → Environment Variables):
+  - Backend (FastAPI):
+    - `API_KEY` (required): API key for sensitive routes.
+    - `WS_SECRET` (optional): HMAC secret for short‑lived WS tokens.
+    - `POLYGON_API_KEY` (optional): enables `/api/v1/news` and quote helpers.
+    - `CHATDATA_API_KEY` (required for Coach features).
+    - `CHATDATA_CHATBOT_ID` (required for some Chat Data setups).
+    - `DATABASE_URL` (required for DB + Alembic migrations).
   - `NEXT_PUBLIC_API_BASE`: URL of the FastAPI backend (e.g., `https://your-backend.example.com`).
   - `NEXT_PUBLIC_API_KEY`: optional API key to pass to the backend (propagated to `X-API-Key` and WS `api_key=`).
   - `NEXT_PUBLIC_WS_BASE`: optional full `wss://.../ws` override; otherwise derived from `NEXT_PUBLIC_API_BASE`.
@@ -43,3 +50,11 @@ Notes
 - vercel.json routes all paths to the Next.js app directory: ensure API proxy `/api/proxy` keeps working.
 - For WS, prefer `NEXT_PUBLIC_WS_BASE` if you terminate TLS or path differs.
 
+Migrations (Alembic)
+- If `DATABASE_URL` is set, ensure migrations run before app start (CI/CD):
+  - `alembic upgrade head`
+  - Baseline migration creates `narratives` and `playbook_entries`.
+
+WebSocket Auth
+- Preferred: fetch token from `GET /api/v1/auth/ws-token`, then connect to `/ws?token=<...>`.
+- Legacy: `/ws?api_key=<API_KEY>` is still supported.

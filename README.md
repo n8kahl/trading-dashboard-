@@ -40,6 +40,8 @@ Continue building your app on:
 
 The backend reads the following environment variables:
 
+- `API_KEY` – required; gates sensitive routes via `X-API-Key`.
+- `WS_SECRET` – optional; signs short‑lived WS tokens minted at `/api/v1/auth/ws-token`.
 - `TRADIER_BASE` – Tradier API base URL (defaults to sandbox)
 - `TRADIER_ACCESS_TOKEN` – Tradier access token
 - `POLYGON_API_KEY` – optional key for Polygon quotes
@@ -94,9 +96,13 @@ Environment variables:
 
 ## WebSocket
 
-Run the FastAPI app with `uvicorn app.main:app`. The dashboard connects to
-`ws://<host>/ws` for live updates. Heartbeats are sent every `WS_PING_SEC`
-seconds, and the connection manager drops unresponsive sockets.
+Run the FastAPI app with `uvicorn app.main:app`.
+
+Auth options:
+- Preferred: fetch `token` from `GET /api/v1/auth/ws-token` then connect `ws://<host>/ws?token=<token>`.
+- Legacy: connect with `ws://<host>/ws?api_key=<API_KEY>`.
+
+Heartbeats are sent every `WS_PING_SEC` seconds; the connection manager drops unresponsive sockets.
 
 ## AI Coach (chat-data.com)
 

@@ -64,6 +64,7 @@ async def chart_proposal(
     const url = `/api/v1/market/bars?` + params.toString();
     const levelsUrl = `/api/v1/market/levels?symbol={sym}`;
     const theme = '{theme}';
+    const dir = '{escape((direction or "").lower())}' === 'long' ? 'long' : 'short';
     const want = (name) => '{overlays}'.split(',').map(s => s.trim().toLowerCase()).includes(name);
     const confluence = '{escape(confluence)}'.split(',').map(s => s.trim()).filter(Boolean);
     const emAbs = {('null' if em_abs is None else str(em_abs))};
@@ -112,12 +113,17 @@ async def chart_proposal(
       }});
 
       const resp = await fetch(url);
-      const j = await resp.json();
-      if (!j.ok) {{
-        el.innerHTML = '<div style="color:#f00;padding:16px">Failed to load bars: '+(j.error||'unknown')+'</div>';
+      let j = null;
+      try {{ j = await resp.json(); }} catch (e) {{}}
+      if (!j || !j.ok) {{
+        el.innerHTML = '<div style="color:#f00;padding:16px">Failed to load bars: '+(j && j.error || 'unknown')+'</div>';
         return;
       }}
       const bars = j.bars || [];
+      if (!bars.length) {{
+        el.innerHTML = '<div style="color:{('#c9d1d9' if theme=='dark' else '#111')};padding:16px">No bars available for this interval/lookback. Try 5m or 1d.</div>';
+        return;
+      }}
       const data = bars.map(b => ({{ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }}));
       candleSeries.setData(data);
 
@@ -156,9 +162,9 @@ async def chart_proposal(
       if (entryTime) {{
         const marker = {{
           time: Math.floor(entryTime/1000),
-          position: '{'belowBar' if (direction.lower()=='long') else 'aboveBar'}',
-          color: '{'#16a34a' if (direction.lower()=='long') else '#ef4444'}',
-          shape: '{'arrowUp' if (direction.lower()=='long') else 'arrowDown'}',
+          position: (dir === 'long' ? 'belowBar' : 'aboveBar'),
+          color: (dir === 'long' ? '#16a34a' : '#ef4444'),
+          shape: (dir === 'long' ? 'arrowUp' : 'arrowDown'),
           text: 'Entry'
         }};
         candleSeries.setMarkers([marker]);

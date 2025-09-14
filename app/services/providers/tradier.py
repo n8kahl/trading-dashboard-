@@ -1,15 +1,20 @@
 from __future__ import annotations
 import os, httpx
 
-BASE = "https://api.tradier.com/v1"
+ENV = (os.getenv("TRADIER_ENV") or "prod").lower()  # "prod" or "sandbox"
+BASE = "https://api.tradier.com/v1" if ENV == "prod" else "https://sandbox.tradier.com/v1"
+
 TOKEN = os.getenv("TRADIER_ACCESS_TOKEN", "")
 ACCOUNT_ID = os.getenv("TRADIER_ACCOUNT_ID", "")
 
 def _hdrs():
-    auth = TOKEN
+    auth = TOKEN or ""
     if auth and not auth.lower().startswith("bearer "):
         auth = f"Bearer {auth}"
-    return {"Authorization": auth, "Accept": "application/json"}
+    return {
+        "Authorization": auth,
+        "Accept": "application/json",
+    }
 
 class TradierClient:
     def __init__(self, timeout: float = 8.0):

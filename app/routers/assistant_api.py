@@ -12,6 +12,8 @@ router = APIRouter(prefix="/api/v1")
 
 # ---------- Dynamic provider imports (robust, non-fatal) ----------
 from importlib import import_module as _im
+import os
+from urllib.parse import urlencode
 from app.engine.risk_flags import compute_risk_flags
 
 PolygonMarket = None
@@ -142,6 +144,84 @@ def _p_touch(distance: float, sigma_abs: float) -> Optional[float]:
         import math
         Phi = 0.5*(1.0 + math.erf(x/math.sqrt(2)))
         return max(0.0, min(1.0, 2.0*(1.0 - Phi)))
+    except Exception:
+        return None
+
+# ---------- Chart link helper ----------
+_PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"
+
+def _confluence_tags(r: Dict[str, Any], horizon: str) -> List[str]:
+    tags: List[str] = []
+    sp = r.get("spread_pct")
+    if sp is not None:
+        tags.append("spread_tight" if sp <= 10 else "spread_wide")
+    st = r.get("spread_stability")
+    if isinstance(st, (int, float)):
+        if st >= 0.6:
+            tags.append("stability_ok")
+    ivp = r.get("iv_percentile")
+    if isinstance(ivp, (int, float)):
+        if 25 <= ivp <= 75:
+            tags.append("iv_mid")
+        else:
+            tags.append("iv_extreme")
+    evd = (r.get("ev") or {}).get("dollars")
+    if isinstance(evd, (int, float)):
+        tags.append("ev_positive" if evd > 0 else "ev_negative")
+    oi = r.get("oi") or 0; vol = r.get("volume") or 0
+    try:
+        if int(oi) >= 500 or int(vol) >= 100:
+            tags.append("liquidity_ok")
+        else:
+            tags.append("liquidity_light")
+    except Exception:
+        pass
+    d = r.get("delta")
+    try:
+        if d is not None:
+            target = 0.50 if horizon=="scalp" else 0.40 if horizon=="intraday" else 0.30
+            if abs(abs(float(d)) - target) <= 0.1:
+                tags.append("delta_fit")
+    except Exception:
+        pass
+    return tags
+
+def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel: Optional[float], r: Dict[str, Any], horizon: str, hits: Dict[str, Any]) -> Optional[str]:
+    try:
+        if last is None or em_abs is None:
+            return None
+        direction = "long" if (r.get("type") == "call") else "short"
+        entry = float(last)
+        if direction == "long":
+            sl = entry - 0.25*em_abs
+            tp1 = entry + 0.25*em_abs
+            tp2 = entry + 0.50*em_abs
+        else:
+            sl = entry + 0.25*em_abs
+            tp1 = entry - 0.25*em_abs
+            tp2 = entry - 0.50*em_abs
+        conf = ",".join(_confluence_tags(r, horizon))
+        q = {
+            "symbol": sym,
+            "interval": "1m",
+            "lookback": 390,
+            "overlays": "vwap,ema20,ema50,pivots",
+            "entry": round(entry, 4),
+            "sl": round(sl, 4),
+            "tp1": round(tp1, 4),
+            "tp2": round(tp2, 4),
+            "direction": direction,
+            "confluence": conf,
+            "em_abs": round(em_abs, 4),
+            "em_rel": (round(em_rel, 6) if isinstance(em_rel, (int, float)) else None),
+            "anchor": "entry",
+            "hit_tp1": hits.get("tp1"),
+            "hit_tp2": hits.get("tp2"),
+            "theme": "dark",
+        }
+        # drop None values
+        q = {k:v for k,v in q.items() if v is not None}
+        return f"{_PUBLIC_BASE}/charts/proposal?" + urlencode(q)
     except Exception:
         return None
 
@@ -415,6 +495,11 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     r["ev_detail"] = bd
                                 except Exception:
                                     pass
+                            # Attach chart URL for quick visualization
+                            try:
+                                r["chart_url"] = _chart_url(sym, lp, em_abs, em_rel, r, horizon, r.get("hit_probabilities") or {})
+                            except Exception:
+                                pass
 
                         # Short NBBO sampling to estimate spread stability and refresh quotes
                         async def _nbbo_sample(picks: List[Dict[str, Any]], samples: int = 2, interval: float = 0.35):
@@ -541,6 +626,11 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                                 r["ev_detail"] = bd
                                             except Exception:
                                                 pass
+                                        # Attach chart URL as well (fallback path)
+                                        try:
+                                            r["chart_url"] = _chart_url(sym, lp, em_abs, em_rel, r, horizon, r.get("hit_probabilities") or {})
+                                        except Exception:
+                                            pass
                                     # NBBO sampling on fallback too
                                     try:
                                         await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)

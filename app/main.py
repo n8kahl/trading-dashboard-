@@ -135,6 +135,7 @@ _mount("app.routers.broker_tradier", secure=True)  # tradier broker routes
 _mount("app.routers.auto", secure=True)  # auto-trade
 _mount("app.routers.stream")  # stream snapshot
 _mount("app.routers.coach", secure=True)  # chat-data.com coach chat
+_mount("app.routers.coach_stream", secure=True)  # SSE narrator stream
 _mount("app.routers.journal", secure=True)  # journal CRUD
 _mount("app.routers.trades", secure=True)  # trade endpoints if present
 _mount("app.routers.settings", secure=True)  # admin settings CRUD

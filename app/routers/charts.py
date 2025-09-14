@@ -61,8 +61,9 @@ async def chart_proposal(
   </div>
   <script>
     const params = new URLSearchParams({{ symbol: '{sym}', interval: '{interval}', lookback: '{lookback}' }});
-    const url = `/api/v1/market/bars?` + params.toString();
-    const levelsUrl = `/api/v1/market/levels?symbol={sym}`;
+    const apiBase = (window.location && window.location.origin) || '';
+    const url = apiBase + '/api/v1/market/bars?' + params.toString();
+    const levelsUrl = apiBase + '/api/v1/market/levels?symbol={sym}';
     const theme = '{theme}';
     const dir = '{escape((direction or "").lower())}' === 'long' ? 'long' : 'short';
     const want = (name) => '{overlays}'.split(',').map(s => s.trim().toLowerCase()).includes(name);
@@ -99,6 +100,10 @@ async def chart_proposal(
 
     async function main() {{
       const el = document.getElementById('chart');
+      if (typeof LightweightCharts === 'undefined') {
+        el.innerHTML = '<div style="color:#f00;padding:16px">Chart library failed to load. Please allow CDN scripts or try again.</div>';
+        return;
+      }
       const chart = LightweightCharts.createChart(el, {{
         autoSize: true,
         layout: {{ background: {{ type: 'Solid', color: '{('#0d1117' if theme=='dark' else '#ffffff')}' }}, textColor: '{('#c9d1d9' if theme=='dark' else '#111')}' }},

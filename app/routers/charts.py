@@ -19,6 +19,11 @@ async def chart_proposal(
     entry_time: int | None = None,
     direction: str = Query("long"),
     confluence: str = Query(""),
+    em_abs: float | None = None,
+    em_rel: float | None = None,
+    anchor: str = Query("entry"),
+    hit_tp1: float | None = None,
+    hit_tp2: float | None = None,
     theme: str = Query("dark"),
     width: int = 1200,
     height: int = 650,
@@ -61,6 +66,11 @@ async def chart_proposal(
     const theme = '{theme}';
     const want = (name) => '{overlays}'.split(',').map(s => s.trim().toLowerCase()).includes(name);
     const confluence = '{escape(confluence)}'.split(',').map(s => s.trim()).filter(Boolean);
+    const emAbs = {('null' if em_abs is None else str(em_abs))};
+    const emRel = {('null' if em_rel is None else str(em_rel))};
+    const anchor = '{escape(anchor)}'.toLowerCase() === 'last' ? 'last' : 'entry';
+    const hit1 = {('null' if hit_tp1 is None else str(hit_tp1))};
+    const hit2 = {('null' if hit_tp2 is None else str(hit_tp2))};
 
     function ema(values, period) {{
       const k = 2/(period+1);
@@ -154,6 +164,21 @@ async def chart_proposal(
         candleSeries.setMarkers([marker]);
       }}
 
+      // EM guard-rail lines around anchor (entry or last close)
+      if (emAbs !== null && !isNaN(emAbs)) {{
+        let base = null;
+        if (anchor === 'entry' && entry !== null) base = entry;
+        if ((base === null || base === undefined) && data && data.length) {{
+          base = data[data.length - 1].close;
+        }}
+        if (base !== null && base !== undefined) {{
+          const hi = Number(base) + Number(emAbs);
+          const lo = Number(base) - Number(emAbs);
+          priceLine(hi, 'EM+', '#7c3aed');
+          priceLine(lo, 'EM-', '#7c3aed');
+        }}
+      }}
+
       // Pivots/levels
       if (want('pivots') || want('levels')) {{
         try {{
@@ -173,14 +198,21 @@ async def chart_proposal(
 
       // Confluence badges
       const badges = document.getElementById('badges');
+      const addBadge = (label) => {{
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = label;
+        badges.appendChild(b);
+      }};
       if (confluence && confluence.length) {{
-        for (const name of confluence) {{
-          const b = document.createElement('span');
-          b.className = 'badge';
-          b.textContent = name;
-          badges.appendChild(b);
-        }}
+        for (const name of confluence) addBadge(name);
       }}
+      if (emAbs !== null && !isNaN(emAbs)) addBadge('EM ± ' + Number(emAbs).toFixed(2));
+      if (emRel !== null && !isNaN(emRel)) addBadge('EM ' + (Number(emRel)*100).toFixed(1) + '%');
+      const pctFmt = (x) => (x==null || isNaN(x)) ? null : (x > 1.5 ? Number(x) : Number(x)*100);
+      const h1 = pctFmt(hit1); const h2 = pctFmt(hit2);
+      if (h1 !== null) addBadge('P(TP1) ~ ' + h1.toFixed(0) + '%');
+      if (h2 !== null) addBadge('P(TP2) ~ ' + h2.toFixed(0) + '%');
     }}
     main();
   </script>

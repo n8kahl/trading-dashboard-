@@ -69,6 +69,32 @@ This document tracks code and docs changes so work can be resumed easily in a ne
 - Feature: Bars data endpoint
   - New `GET /api/v1/market/bars` serving recent Polygon OHLCV for 1m/5m/daily.
 
+### Later on 2025-09-14 (Chart links + fixes)
+
+- Assistant now includes a ready `chart_url` for each options pick
+  - Prebuilt link to `/charts/proposal` with overlays, Entry/SL/TP1/TP2, EM rails, hit probabilities, confluence tags, and a beginner plan blurb.
+  - Uses `PUBLIC_BASE_URL` when present; falls back to Railway URL.
+
+- Charts hardened
+  - Converted HTML to use `string.Template` (no Python f-string braces) to fix import/runtime crashes.
+  - Added CDN fallback (jsdelivr) if unpkg is blocked; shows helpful error messages instead of a blank page.
+  - Absolute API URLs via `window.location.origin` so fetches work behind proxies.
+  - Interval fallback inside the page: try `1m`, then `5m`, then `1d` to avoid empty charts off-hours.
+
+### Later on 2025-09-14 (Chart UX for beginners)
+
+- Labels
+  - Price lines: "Entry", "Stop Loss", "Target 1", "Target 2"; EM rails as "EM Upper/Lower".
+  - Pivot labels spelled out: Pivot (P), Resistance 1/2, Support 1/2.
+
+- Strategy Plan panel
+  - Auto-bulleted plan with: confirmation → entry retest, targets from EM, probabilities, stop-loss behavior, and when to skip/size down.
+  - Accepts a custom `plan` query param (pipe `|` delimited) to override text.
+
+- Toolbar simplified
+  - Timeframe picker (1m/5m/1d), Fit, Refresh. Removed overlay toggles to reduce clutter.
+  - Legend shows human-friendly overlays (VWAP + EMA20 + EMA50 + Pivots). Chart auto-fits to viewport and data.
+
 - Feature: Market overview endpoint
   - New `GET /api/v1/market/overview` summarizing indices (SPY, QQQ) and sector ETFs.
   - Returns last, daily change %, intraday VWAP/sigma, RVOL(5), and regime metrics where available.

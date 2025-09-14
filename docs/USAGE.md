@@ -1,0 +1,83 @@
+# Usage Guide
+
+This app serves a FastAPI backend for day-trading workflows, plus a lightweight interactive chart. Use this guide to validate symbols, generate hedge ideas, and visualize plans.
+
+## Environment
+
+Required
+- `POLYGON_API_KEY`
+
+Optional
+- `TRADIER_ACCESS_TOKEN` or `TRADIER_API_KEY` (quotes, fallback options chain)
+- `TRADIER_ENV` = `sandbox`|`prod`
+- `POLYGON_API_RATE`, `TRADIER_API_RATE` (RPS rate limiting)
+- `PUBLIC_BASE_URL` (absolute base used in `chart_url` links)
+
+## Endpoints
+
+- `GET /api/v1/assistant/actions`
+  - Returns available ops and provider flags.
+
+- `POST /api/v1/assistant/exec`
+  - Body: `{ "op": "data.snapshot", "args": { symbols, horizon, include, options } }`
+  - Include `options` to fetch options shortlists. Each pick contains greeks/IV/EV/liquidity, hit probabilities, and a `chart_url`.
+
+- `POST /api/v1/assistant/hedge`
+  - Body: `{ objective, horizon, positions: [{symbol, type, side, strike?, expiry?, qty, avg_price?}] }`
+  - Returns net Greeks and suggestions (cap naked shorts into verticals, protective puts for stock) with NBBO on protective legs.
+
+- `GET /api/v1/market/overview`
+  - Optional macro snapshot for indices and sector ETFs (you may prefer web for macro headlines).
+
+- `GET /api/v1/market/bars`
+  - `symbol`, `interval`=`1m|5m|1d`, `lookback`
+  - JSON OHLCV for client-side charts.
+
+- `GET /api/v1/market/levels`
+  - Prior-day OHLC and classic P/R/S pivots for labeling.
+
+- `GET /charts/proposal`
+  - Interactive, beginner-friendly chart.
+  - Query params:
+    - Required: `symbol`
+    - Common: `interval`=`1m|5m|1d`, `lookback`
+    - Plan and annotations: `entry`, `sl`, `tp1`, `tp2`, `direction=long|short`
+    - Context: `overlays=vwap,ema20,ema50,pivots`, `em_abs`, `em_rel`, `hit_tp1`, `hit_tp2`, `confluence=csv`
+    - Optional: `entry_time` (ms since epoch), `plan` (pipe-delimited bullets)
+  - UI:
+    - Timeframe selector, Fit, Refresh
+    - Strategy Plan panel with current state (relative to VWAP), step-by-step entry, targets from EM, probabilities, and risk guidance.
+    - Auto-fallback to 5m → 1d if 1m is empty; clear error messages if the chart lib or data fails.
+
+## Example Requests
+
+Snapshot (SPY intraday with options):
+```
+curl -s -X POST $BASE/api/v1/assistant/exec \
+ -H 'Content-Type: application/json' \
+ -d '{"op":"data.snapshot","args":{"symbols":["SPY"],"horizon":"intraday","include":["options"],"options":{"expiry":"auto","topK":8,"maxSpreadPct":12,"greeks":true}}}'
+```
+
+Hedge (cap a naked short + protective put for long stock):
+```
+curl -s -X POST $BASE/api/v1/assistant/hedge \
+ -H 'Content-Type: application/json' \
+ -d '{"objective":"cap_loss","horizon":"intraday","positions":[{"symbol":"AAPL","type":"call","side":"short","strike":210,"expiry":"2025-09-20","qty":1},{"symbol":"AAPL","type":"stock","side":"long","qty":100}]}'
+```
+
+Chart (TSLA, intraday plan):
+```
+https://your-host/charts/proposal?symbol=TSLA&interval=1m&overlays=vwap,ema20,ema50,pivots&entry=395.9&sl=393.3&tp1=398.6&tp2=401.2&direction=long&em_abs=2.5&hit_tp1=0.68&hit_tp2=0.42
+```
+
+## Troubleshooting
+
+- Blank chart page: CDN blocked? The page now falls back to jsdelivr and shows an error if both CDNs fail.
+- Off-hours 1m empty: The chart auto-falls back to 5m → 1d and shows a message if still empty.
+- Tradier unavailable: Snapshot still works via Polygon; errors are returned in `errors` and `providers` flags.
+- Rate limits: Adjust `POLYGON_API_RATE` / `TRADIER_API_RATE` if you see throttling.
+
+## Notes
+
+- Options picks include `chart_url` ready to share with users; links use `PUBLIC_BASE_URL` when set.
+- EM used in plans is horizon-scaled; see `docs/CONFIDENCE.md` for details.

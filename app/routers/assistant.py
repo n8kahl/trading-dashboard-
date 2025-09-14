@@ -8,13 +8,8 @@ from app.services.providers.polygon_market import PolygonMarket
 from app.services.providers.tradier import TradierMarket, TradierAuthError, TradierHTTPError
 from app.services.indicators import (ema, sma, rsi, macd, atr14, session_vwap_and_sigma, pivots_classic, rvol_5min)
 from app.engine.regime import analyze as regime_analyze
-from app.engine.options_scoring import (
-    tradeability_score, ScoreWeights,
-    expected_move_from_straddle, probability_of_touch
-)
-from app.engine.position_guidance import (
-    dynamic_trailing_stop, scale_plan, adjust_targets_for_em
-)
+from app.engine.options_scoring import tradeability_score, ScoreWeights, expected_move_from_straddle, probability_of_touch
+from app.engine.position_guidance import dynamic_trailing_stop, scale_plan, adjust_targets_for_em
  (
     ema, sma, rsi, macd, atr14,
     session_vwap_and_sigma, pivots_classic, rvol_5min

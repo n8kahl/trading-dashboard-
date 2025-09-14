@@ -117,16 +117,21 @@ async def chart_proposal(
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444'
       }});
 
-      const resp = await fetch(url);
-      let j = null;
-      try {{ j = await resp.json(); }} catch (e) {{}}
-      if (!j || !j.ok) {{
-        el.innerHTML = '<div style="color:#f00;padding:16px">Failed to load bars: '+(j && j.error || 'unknown')+'</div>';
-        return;
+      async function fetchBars(intv) {{
+        const p = new URLSearchParams({{ symbol: '{sym}', interval: intv, lookback: '{lookback}' }});
+        const u = apiBase + '/api/v1/market/bars?' + p.toString();
+        try {{
+          const r = await fetch(u);
+          const jj = await r.json();
+          if (jj && jj.ok && Array.isArray(jj.bars) && jj.bars.length) return jj.bars;
+        }} catch (e) {{}}
+        return [];
       }}
-      const bars = j.bars || [];
+      let bars = await fetchBars('{interval}');
+      if (!bars.length && '{interval}' === '1m') bars = await fetchBars('5m');
+      if (!bars.length) bars = await fetchBars('1d');
       if (!bars.length) {{
-        el.innerHTML = '<div style="color:{('#c9d1d9' if theme=='dark' else '#111')};padding:16px">No bars available for this interval/lookback. Try 5m or 1d.</div>';
+        el.innerHTML = '<div style="color:{('#c9d1d9' if theme=='dark' else '#111')};padding:16px">No bars available. Try later or a different interval.</div>';
         return;
       }}
       const data = bars.map(b => ({{ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }}));

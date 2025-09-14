@@ -20,7 +20,7 @@ Last reviewed: 2025-09-14
 
 ## M1 — Live Prices & Alerts
 - [x] Polygon WS client publishes `price` for watchlist symbols.
-- [ ] Alerts CRUD with validation; list/create/update/delete.  (update route pending)
+- [x] Alerts CRUD with validation; list/create/update/delete.
 - [x] Alert poller triggers via Polygon HTTP; creates `AlertTrigger` rows; WS `alert` fan‑out.
 
 ## M2 — Planning & Sizing
@@ -45,15 +45,13 @@ Last reviewed: 2025-09-14
 - [x] Y2 — Snapshot on connect: `/api/v1/stream/state` to seed frontend before ticks. (implemented)
 - [x] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
 - [x] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
-- [ ] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [x] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [x] Y6 — Broker/journal auditing: persist placed orders + narrator guidance.
-- [ ] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.
 - [x] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.
 ## M5 — Discord Alerts
-- [ ] Settings: webhook URL, enable toggle, allowed alert types (e.g., price_above, price_below, risk).
-- [ ] Poller forwards triggers to Discord when enabled and type matches.
-- [ ] Optional: risk breach alerts forwarded from risk engine.
+- [x] Settings: webhook URL, enable toggle, allowed alert types (e.g., price_above, price_below, risk).
+- [x] Poller forwards triggers to Discord when enabled and type matches.
+- [x] Risk breach alerts forwarded from risk engine.
 
 Status notes
 - Frontend dashboard + WS live; price/risk/alerts propagate over WS.

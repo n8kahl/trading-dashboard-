@@ -29,6 +29,9 @@ jobs:
       - name: Pull Vercel Env (preview)
         working-directory: trading-dashboard
         run: vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+      - name: Install deps (preview)
+        working-directory: trading-dashboard
+        run: pnpm install --no-frozen-lockfile
       - name: Build (preview)
         working-directory: trading-dashboard
         run: vercel build --token=$VERCEL_TOKEN
@@ -67,6 +70,9 @@ jobs:
       - name: Pull Vercel Env (production)
         working-directory: trading-dashboard
         run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+      - name: Install deps (production)
+        working-directory: trading-dashboard
+        run: pnpm install --no-frozen-lockfile
       - name: Build (production)
         working-directory: trading-dashboard
         run: vercel build --prod --token=$VERCEL_TOKEN

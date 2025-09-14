@@ -36,6 +36,11 @@ class Settings(BaseModel):
     RATE_LIMIT_NEWS_PER_MIN: int = int(os.getenv("RATE_LIMIT_NEWS_PER_MIN", "30"))
     RATE_LIMIT_COACH_PER_MIN: int = int(os.getenv("RATE_LIMIT_COACH_PER_MIN", "10"))
 
+    # SSE backpressure
+    SSE_MIN_PRICE_DELTA_PCT: float = float(os.getenv("SSE_MIN_PRICE_DELTA_PCT", "0.001"))  # 0.1%
+    SSE_MIN_CONFIDENCE_DELTA: int = int(os.getenv("SSE_MIN_CONFIDENCE_DELTA", "5"))
+    SSE_HEARTBEAT_SEC: int = int(os.getenv("SSE_HEARTBEAT_SEC", "15"))
+
 
 settings = Settings()
 

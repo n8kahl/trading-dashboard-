@@ -44,7 +44,7 @@ Last reviewed: 2025-09-14
 ## Upcoming (YELLOW/GREEN)
 - [x] Y2 — Snapshot on connect: `/api/v1/stream/state` to seed frontend before ticks. (implemented)
 - [x] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
-- [ ] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
+- [x] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
 - [ ] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [x] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [ ] Y6 — Broker/journal auditing: persist placed orders + narrator guidance.

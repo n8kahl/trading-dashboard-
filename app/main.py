@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from app.routers.assistant import router as assistant_router
+from app.routers.assistant_api import router as assistant_router
 from app.routers.diag import router as diag_router  # <-- make sure this exists
 
 app = FastAPI(title="Trading Assistant – Stable Exec Layer")

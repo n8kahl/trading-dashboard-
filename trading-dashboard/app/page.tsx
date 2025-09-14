@@ -11,6 +11,8 @@ import AlertsPanel from "@/components/AlertsPanel";
 import NarrativeTicker from "@/components/NarrativeTicker";
 import PositionCoach from "@/components/PositionCoach";
 import ConfidenceCardV2 from "@/components/ConfidenceCard";
+import LiveChart from "@/components/LiveChart";
+import OrderTicket from "@/components/OrderTicket";
 
 type WatchlistResp = { ok: boolean; symbols: string[] };
 type Pick = {
@@ -33,6 +35,7 @@ function smallNum(n?: number, d: number = 3) {
 export default function Page() {
   const [side, setSide] = useState<"call"|"put">("call");
   const [ticker, setTicker] = useState("SPY");
+  const [ticketOpen, setTicketOpen] = useState(false);
   const connected = useWS();
   const prices = usePrices();
   const risk = useRisk();
@@ -233,11 +236,11 @@ export default function Page() {
 
       <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:12, marginTop:12}}>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
-          {/* Reserved for future chart/workspace content */}
+          <LiveChart symbol={ticker} />
         </div>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
-          <NarrativeTicker symbol={ticker} />
-          <PositionCoach symbol={ticker} />
+          {process.env.NEXT_PUBLIC_DISABLE_NARRATOR === '1' ? null : <NarrativeTicker symbol={ticker} />}
+          {process.env.NEXT_PUBLIC_DISABLE_NARRATOR === '1' ? null : <PositionCoach symbol={ticker} />}
           <NewsPanel symbols={(wl.data?.symbols ?? [ticker]).slice(0,7)} />
           <AlertsPanel />
         </div>
@@ -247,12 +250,13 @@ export default function Page() {
       <div style={{position:"fixed", left:0, right:0, bottom:8, display:"flex", gap:8, justifyContent:"center"}}
         className="mobile-only">
         <div className="card" style={{display:"flex", gap:8, padding:8}}>
-          <button className="secondary" onClick={()=>alert("Buy ticket (stub)")}>Buy</button>
-          <button className="secondary" onClick={()=>alert("Sell/Close (stub)")}>Sell</button>
+          <button className="secondary" onClick={()=>setTicketOpen(true)}>Buy</button>
+          <button className="secondary" onClick={()=>setTicketOpen(true)}>Sell</button>
           <button className="secondary" onClick={()=>alert("Alert preset (stub)")}>Alert</button>
           <button className="secondary" onClick={()=>alert("Ask Coach (stub)")}>Coach</button>
         </div>
       </div>
+      <OrderTicket symbol={ticker} open={ticketOpen} onClose={()=> setTicketOpen(false)} />
     </main>
   );
 }

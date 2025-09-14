@@ -178,6 +178,7 @@ _mount("app.routers.coach_stream", secure=True)  # SSE narrator stream
 _mount("app.routers.journal", secure=True)  # journal CRUD
 _mount("app.routers.trades", secure=True)  # trade endpoints if present
 _mount("app.routers.settings", secure=True)  # admin settings CRUD
+_mount("app.routers.market", secure=True)  # market bars
 
 # auth + news
 _mount("app.routers.auth")  # ws-token mint

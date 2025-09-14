@@ -1,16 +1,34 @@
 from __future__ import annotations
 import os, httpx
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-TRADIER_BASE = os.getenv("TRADIER_BASE", "https://api.tradier.com/v1")
-TRADIER_TOKEN = os.getenv("TRADIER_API_KEY", "")
+def _resolve_base() -> str:
+    # Priority: explicit TRADIER_BASE, else TRADIER_ENV
+    base = os.getenv("TRADIER_BASE")
+    env = (os.getenv("TRADIER_ENV") or "").lower()
+    if not base:
+        if env == "sandbox":
+            base = "https://sandbox.tradier.com"
+        else:
+            base = "https://api.tradier.com"
+    # Ensure we have the /v1 suffix
+    if not base.rstrip("/").endswith("/v1"):
+        base = base.rstrip("/") + "/v1"
+    return base
+
+def _resolve_token() -> str:
+    # Accept either variable name
+    return os.getenv("TRADIER_API_KEY") or os.getenv("TRADIER_ACCESS_TOKEN") or ""
+
+TRADIER_BASE = _resolve_base()
+TRADIER_TOKEN = _resolve_token()
+
+class TradierAuthError(Exception): ...
+class TradierHTTPError(Exception): ...
 
 class TradierMarket:
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
-        if not TRADIER_TOKEN:
-            # We don't raise here; caller should handle empty token gracefully.
-            pass
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -19,24 +37,19 @@ class TradierMarket:
         }
 
     async def quote_last(self, symbol: str) -> Dict[str, Any]:
-        """
-        Get the underlying's last price via Tradier.
-        Returns: {"symbol": "SPY", "price": 123.45, "t": ISO-or-epoch-or-null}
-        """
-        if not TRADIER_TOKEN:
-            return {"symbol": symbol.upper(), "price": None, "t": None}
-
-        url = f"{TRADIER_BASE}/markets/quotes"
+        token = _resolve_token()
+        if not token:
+            raise TradierAuthError("Missing TRADIER_API_KEY / TRADIER_ACCESS_TOKEN")
+        url = f"{_resolve_base()}/markets/quotes"
         params = {"symbols": symbol.upper()}
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             r = await c.get(url, headers=self._headers(), params=params)
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise TradierHTTPError(f"{r.status_code}: {r.text}")
             j = r.json() or {}
-            # Tradier returns either a dict or a list under quotes.quote
             q = (j.get("quotes") or {}).get("quote")
             if isinstance(q, list):
                 q = q[0] if q else {}
             last = (q or {}).get("last")
-            # Tradier's "trade_date" can be a unix sec, or "2025-09-12T15:59:59Z" depending on plan
             t = (q or {}).get("trade_date") or (q or {}).get("timestamp") or None
             return {"symbol": symbol.upper(), "price": last, "t": t}

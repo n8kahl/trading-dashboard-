@@ -25,6 +25,7 @@ async def chart_proposal(
     hit_tp1: float | None = None,
     hit_tp2: float | None = None,
     theme: str = Query("dark"),
+    plan: str = Query(""),
     width: int = 1200,
     height: int = 650,
 ) -> Response:
@@ -55,6 +56,10 @@ async def chart_proposal(
     #wrap { width: min(100vw, ${WIDTH}px); height: min(100vh, ${HEIGHT}px); margin: 0 auto; }
     #chart { width: 100%; height: 100%; display: block; }
     .legend { position:absolute; left:8px; top:8px; color:${TEXT}; font: 12px/1.4 -apple-system,Segoe UI,Arial; background: transparent; }
+    .panel { position:absolute; left:8px; bottom:8px; max-width:min(460px, 95vw); padding:10px 12px; border-radius:8px; background:${BADGE_BG}; color:${TEXT}; border:1px solid ${BORDER}; font: 12px/1.5 -apple-system,Segoe UI,Arial; }
+    .panel h4 { margin: 0 0 6px 0; font-size: 13px; }
+    .panel ul { margin: 6px 0 0; padding-left: 18px; }
+    .panel li { margin: 3px 0; }
     .badges { position:absolute; right:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:50%; }
     .badge { padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid ${BORDER}; color:${TEXT}; background:${BADGE_BG}; }
   </style>
@@ -64,6 +69,7 @@ async def chart_proposal(
     <div id="chart"></div>
     <div class="legend" id="legend">${SYM} ${INTERVAL} · overlays: ${OVERLAYS}</div>
     <div class="badges" id="badges"></div>
+    <div class="panel" id="planPanel" style="display:none"></div>
   </div>
   <script>
     const params = new URLSearchParams({ symbol: '${SYM}', interval: '${INTERVAL}', lookback: '${LOOKBACK}' });
@@ -79,6 +85,7 @@ async def chart_proposal(
     const anchor = '${ANCHOR}'.toLowerCase() === 'last' ? 'last' : 'entry';
     const hit1 = ${HIT1};
     const hit2 = ${HIT2};
+    const planRaw = `${PLAN}`;
     const prettyOverlays = () => '${OVERLAYS}'.split(',').map(s => s.trim().toLowerCase()).map(s => {
       if (s === 'vwap') return 'VWAP';
       if (s.startsWith('ema')) return s.toUpperCase();
@@ -212,10 +219,11 @@ async def chart_proposal(
           const L = await levResp.json();
           if (L.ok && L.pivots) {
             const colors = { P: '#999', R1: '#f59e0b', R2: '#f59e0b', S1: '#3b82f6', S2: '#3b82f6' };
+            const labels = { P: 'Pivot (P)', R1: 'Resistance 1', R2: 'Resistance 2', S1: 'Support 1', S2: 'Support 2' };
             for (const k of Object.keys(L.pivots)) {
               const val = L.pivots[k];
               if (val!==null && val!==undefined) {
-                candleSeries.createPriceLine({ price: Number(val), color: colors[k]||'#888', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: k });
+                candleSeries.createPriceLine({ price: Number(val), color: colors[k]||'#888', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: labels[k] || k });
               }
             }
           }
@@ -240,6 +248,19 @@ async def chart_proposal(
       if (h2 !== null) addBadge('P(TP2) ~ ' + h2.toFixed(0) + '%');
       // Make legend text more intuitive
       try { document.getElementById('legend').textContent = '${SYM} ${INTERVAL} • ' + prettyOverlays(); } catch (e) {}
+
+      // Strategy plan panel for beginners
+      const panel = document.getElementById('planPanel');
+      if (planRaw && panel) {
+        const items = planRaw.split('|').map(s => s.trim()).filter(Boolean);
+        let html = '<h4>Strategy Plan</h4>';
+        if (items.length) {
+          html += '<ul>' + items.map(s => '<li>'+s.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</li>').join('') + '</ul>';
+        } else {
+          html += '<div>Use EM: take Target 1 at 0.25×EM and Target 2 at 0.5×EM. Place Stop just beyond invalidation. Watch VWAP and pivots for confirmation.</div>';
+        }
+        panel.innerHTML = html; panel.style.display = 'block';
+      }
     }
     (function bootstrap(){
       if (typeof LightweightCharts !== 'undefined') { main(); return; }
@@ -275,6 +296,7 @@ async def chart_proposal(
         'BADGE_BG': badge_bg,
         'WIDTH': str(width),
         'HEIGHT': str(height),
+        'PLAN': escape(plan),
         'ENTRY': 'null' if entry is None else str(entry),
         'SL': 'null' if sl is None else str(sl),
         'TP1': 'null' if tp1 is None else str(tp1),

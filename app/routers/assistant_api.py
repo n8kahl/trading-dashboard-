@@ -201,6 +201,20 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
             tp1 = entry - 0.25*em_abs
             tp2 = entry - 0.50*em_abs
         conf = ",".join(_confluence_tags(r, horizon))
+        # Simple beginner-friendly plan text (pipe-separated bullets)
+        plan = []
+        if direction == "long":
+            plan.append("Wait for breakout above Entry, then a quick retest that holds")
+        else:
+            plan.append("Wait for breakdown below Entry, then a quick retest that fails")
+        plan.append("If invalidation hits, exit quickly and reassess")
+        plan.append("Take Target 1 near 0.25×EM; consider Target 2 near 0.50×EM")
+        if hits:
+            if hits.get("tp1") is not None:
+                plan.append(f"P(TP1) ≈ {int((hits['tp1'] if hits['tp1']<=1 else hits['tp1']/100)*100)}%")
+            if hits.get("tp2") is not None:
+                plan.append(f"P(TP2) ≈ {int((hits['tp2'] if hits['tp2']<=1 else hits['tp2']/100)*100)}%")
+
         q = {
             "symbol": sym,
             "interval": "1m",
@@ -217,6 +231,7 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
             "anchor": "entry",
             "hit_tp1": hits.get("tp1"),
             "hit_tp2": hits.get("tp2"),
+            "plan": " | ".join(plan),
             "theme": "dark",
         }
         # drop None values

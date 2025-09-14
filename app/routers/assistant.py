@@ -1,13 +1,14 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+import re as _re
 
 from app.services.providers.polygon_market import PolygonMarket
 from app.services.providers.tradier import TradierMarket, TradierAuthError, TradierHTTPError
 from app.services.indicators import (
     ema, sma, rsi, macd, atr14,
-    session_vwap_and_sigma, pivots_classic, rvol_5min, spread_stability
+    session_vwap_and_sigma, pivots_classic, rvol_5min
 )
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
@@ -17,32 +18,128 @@ SUPPORTED_OPS = ["data.snapshot"]
 async def assistant_actions():
     return {"ok": True, "ops": SUPPORTED_OPS}
 
-def _auto_expiry(hz: str) -> str:
+# -------- helpers --------
+_OCC_RE = _re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
+def occ_parse(sym: str) -> Optional[Dict[str, Any]]:
+    m = _OCC_RE.match(sym or "")
+    if not m: return None
+    und, yy, mm, dd, cp, strike8 = m.groups()
+    strike = float(int(strike8)/1000.0)
+    return {"underlying": und, "expiry": f"20{yy}-{mm}-{dd}", "type": ("call" if cp=='C' else "put"), "strike": strike}
+
+def auto_expiry(hz: str) -> str:
     today = datetime.utcnow().date()
     if hz in ("scalp","intraday"):
-        days = (4 - today.weekday()) % 7 or 7
+        days = (4 - today.weekday()) % 7 or 7  # to Friday
         return str(today + timedelta(days=days))
     return str(today + timedelta(days=14))
 
-def _normalize_expiry(raw, hz: str) -> str:
-    if raw is None: return _auto_expiry(hz)
-    if isinstance(raw, bool) and raw: return _auto_expiry(hz)
-    if isinstance(raw, str) and raw.strip().lower() == "auto": return _auto_expiry(hz)
+def normalize_expiry(raw, hz: str) -> str:
+    if raw is None: return auto_expiry(hz)
+    if isinstance(raw, bool) and raw: return auto_expiry(hz)
+    if isinstance(raw, str) and raw.strip().lower() == "auto": return auto_expiry(hz)
     return str(raw)
 
-def _conf_score(features: Dict[str, Any], horizon: str) -> Dict[str, Any]:
-    score = 50; details = []
-    if features.get("ema_stack_ok"): score += 20; details.append("EMA stack (1>5>9) & price≥VWAP")
-    if features.get("vwap_plus1_reclaim"): score += 10; details.append("VWAP+1σ reclaim")
-    rv = features.get("rvol_ok")
-    if rv: score += 5; details.append(f"RVOL_5 {rv}")
-    if features.get("rsi_mid"): score += 5; details.append(f"RSI14 ~ {features.get('rsi_val')}")
-    if features.get("macd_up"): score += 5; details.append("MACD hist rising")
-    if features.get("contract_ema_up"): score += 5; details.append("Contract EMA1>EMA5")
-    if features.get("spread_stable"): score += 3; details.append("Spread stability ok")
-    if features.get("spread_bad"): score -= 10; details.append("Spread too wide")
-    return {"score": max(0, min(100, score)), "details": details}
+# -------- options filter/rank --------
+def filter_and_rank_options(rows: List[Dict[str, Any]], expiry: str, horizon: str, max_spread: float, topK: int) -> List[Dict[str, Any]]:
+    MIN_OI = 50
+    MIN_VOL = 1
+    MIN_IV, MAX_IV = 0.05, 5.0
+    MIN_ABS_DELTA, MAX_ABS_DELTA = 0.05, 0.85
 
+    def norm_row(r):
+        meta   = r.get("options") or {}
+        det    = r.get("details") or {}
+        q      = r.get("last_quote") or {}
+        t      = r.get("last_trade") or {}
+        g      = r.get("greeks") or {}
+        iv_raw = r.get("implied_volatility")
+        iv     = (iv_raw.get("iv") if isinstance(iv_raw, dict) else iv_raw)
+
+        sym = meta.get("symbol") or r.get("ticker") or (det.get("symbol") if isinstance(det, dict) else None)
+        occ = occ_parse(sym) if sym else None
+
+        typ    = (occ and occ["type"])    or (meta.get("contract_type") or det.get("contract_type"))
+        strike = (occ and occ["strike"])  or (meta.get("strike_price") or det.get("strike_price"))
+        exp    = (occ and occ["expiry"])  or (meta.get("expiration_date") or det.get("expiration_date"))
+
+        bid, ask = q.get("bid"), q.get("ask")
+        last     = t.get("price") or (r.get("day") or {}).get("close")
+        delta    = g.get("delta")
+
+        return {
+            "symbol": sym,
+            "type": (typ.lower() if isinstance(typ, str) else typ),
+            "strike": strike,
+            "expiry": exp,
+            "bid": bid, "ask": ask, "last": last,
+            "delta": delta, "gamma": g.get("gamma"), "theta": g.get("theta"),
+            "iv": iv,
+            "oi": ((r.get("open_interest") or {}).get("oi") if isinstance(r.get("open_interest"), dict) else r.get("open_interest")),
+            "volume": (r.get("day") or {}).get("volume"),
+        }
+
+    normed = [norm_row(r) for r in rows]
+
+    cleaned = []
+    for x in normed:
+        if not x["symbol"] or not x["type"] or x["strike"] is None or not x["expiry"]:
+            continue
+        if str(x["expiry"]) != str(expiry):
+            continue
+        if x["bid"] is None or x["ask"] is None or x["ask"] <= 0:
+            continue
+
+        sp = ((x["ask"] - x["bid"]) / x["ask"]) * 100.0
+        x["spread_pct"] = round(sp, 2)
+        if sp > max_spread:
+            continue
+
+        iv = x["iv"]
+        if iv is None or iv < MIN_IV or iv > MAX_IV:
+            continue
+
+        d = x["delta"]
+        try:
+            d = float(d)
+        except (TypeError, ValueError):
+            continue
+        d = abs(d) if x["type"] == "call" else -abs(d)
+        if not (MIN_ABS_DELTA <= abs(d) <= MAX_ABS_DELTA):
+            continue
+        x["delta"] = d
+
+        oi  = int(x.get("oi") or 0)
+        vol = int(x.get("volume") or 0)
+        if oi < MIN_OI and vol < MIN_VOL:
+            continue
+
+        cleaned.append(x)
+
+    if not cleaned:
+        return []
+
+    target = 0.50 if horizon=="scalp" else 0.40 if horizon=="intraday" else 0.30
+    def score(x):
+        d  = x["delta"]; sp = x["spread_pct"]; iv = x["iv"] or 0.0
+        oi = int(x.get("oi") or 0); vol = int(x.get("volume") or 0)
+        dc = 1.0 - min(1.0, abs(abs(d) - target))      # delta closeness
+        st = 1.0 - min(1.0, sp/12.0)                   # spread tightness
+        li = min(1.0, (oi/1000.0 + vol/5000.0))        # liquidity
+        ivp= 1.0 - min(1.0, abs(iv-0.25)/0.40)         # IV reasonableness
+        return dc*0.45 + st*0.25 + li*0.20 + ivp*0.10
+
+    ranked = sorted(cleaned, key=score, reverse=True)[:topK]
+    return [{
+        "symbol": r["symbol"], "type": r["type"], "strike": r["strike"], "expiry": r["expiry"],
+        "bid": r["bid"], "ask": r["ask"], "last": r["last"],
+        "delta": round(r["delta"], 4),
+        "iv": (round(r["iv"], 4) if r["iv"] else None),
+        "spread_pct": r["spread_pct"],
+        "oi": int(r.get("oi") or 0), "volume": int(r.get("volume") or 0)
+    } for r in ranked]
+
+# -------- main exec --------
 @router.post("/exec")
 async def assistant_exec(payload: Dict[str, Any]):
     op = payload.get("op"); args = payload.get("args") or {}
@@ -52,15 +149,15 @@ async def assistant_exec(payload: Dict[str, Any]):
     symbols: List[str] = args.get("symbols") or []
     if not symbols: raise HTTPException(status_code=400, detail="args.symbols (array) required")
     horizon: str = (args.get("horizon") or "intraday").lower()
-    include = set(args.get("include") or ["price","history","indicators","levels","micro","options","account","market"])
+    include = set(args.get("include") or ["price","history","indicators","levels","micro","options","account"])
 
     hist_spec = args.get("history") or {}
     bars_kind = hist_spec.get("bars") or ("1m" if horizon=="scalp" else "5m" if horizon=="intraday" else "1D")
-    session_mode = (hist_spec.get("session") or "today").lower()  # NEW: "today" | "prev"
+    session_mode = (hist_spec.get("session") or "today").lower()
     lookback = int(hist_spec.get("lookback") or (30 if bars_kind=="1m" else 90 if bars_kind=="5m" else 120))
 
     opt_spec = args.get("options") or {}
-    expiry = _normalize_expiry(opt_spec.get("expiry"), horizon)
+    expiry = normalize_expiry(opt_spec.get("expiry"), horizon)
     topK = int(opt_spec.get("topK") or 6)
     max_spread = float(opt_spec.get("maxSpreadPct") or 8.0)
 
@@ -76,7 +173,7 @@ async def assistant_exec(payload: Dict[str, Any]):
         out: Dict[str, Any] = {}
         errs: Dict[str, Any] = {}
 
-        # PRICE (Tradier -> Polygon fallback)
+        # PRICE: Tradier → Polygon fallback
         last_price = None; last_t = None
         try:
             tq = await tradier.quote_last(symU)
@@ -93,21 +190,15 @@ async def assistant_exec(payload: Dict[str, Any]):
                 errs["price.polygon"] = f"{type(e).__name__}: {e}"
         out["price"] = {"last": last_price, "t": last_t}
 
-        # HISTORY & INDICATORS
+        # HISTORY (today → prev-session fallback) + daily
         minute_bars = []; fivem_bars = []; daily_bars = []
         try:
-            # intraday
             if bars_kind in ("1m","5m"):
-                # today first
                 try:
-                    if bars_kind == "1m":
-                        minute_bars = await poly.minute_bars_today(symU)
-                    else:
-                        fivem_bars = await poly.five_minute_bars_today(symU)
+                    minute_bars = await poly.minute_bars_today(symU) if bars_kind=="1m" else []
+                    fivem_bars  = await poly.five_minute_bars_today(symU) if bars_kind=="5m" else []
                 except Exception as e:
                     errs[f"history.{bars_kind}"] = f"{type(e).__name__}: {e}"
-
-                # if session=prev or nothing today, get previous session 5m as fallback
                 if session_mode == "prev" or (not minute_bars and not fivem_bars):
                     try:
                         fivem_prev = await poly.five_minute_bars_prev_session(symU)
@@ -115,12 +206,7 @@ async def assistant_exec(payload: Dict[str, Any]):
                             fivem_bars = fivem_prev
                     except Exception as e:
                         errs["history.prev"] = f"{type(e).__name__}: {e}"
-
-            # daily (with cache/backoff)
-            try:
-                daily_bars = await poly.daily_bars(symU, lookback=max(lookback, 220))
-            except Exception as e:
-                errs["history.daily"] = f"{type(e).__name__}: {e}"
+            daily_bars = await poly.daily_bars(symU, lookback=max(lookback, 220))
         except Exception as e:
             errs["history"] = f"{type(e).__name__}: {e}"
 
@@ -144,7 +230,7 @@ async def assistant_exec(payload: Dict[str, Any]):
             errs["indicators"] = f"{type(e).__name__}: {e}"
         out["indicators"] = ind
 
-        # LEVELS (VWAP ± σ, pivots, hod/lod)
+        # LEVELS (VWAP ± σ, pivots, HOD/LOD)
         levels: Dict[str, Any] = {}
         try:
             bars_for_vwap = minute_bars if minute_bars else fivem_bars
@@ -175,44 +261,22 @@ async def assistant_exec(payload: Dict[str, Any]):
         except Exception as e:
             errs["micro"] = f"{type(e).__name__}: {e}"; out["micro"] = {}
 
-        # OPTIONS (unchanged server scoring; symbol now filled by provider)
+        # OPTIONS: normalized, filtered, ranked
         out["options"] = {"expiry": expiry, "top": []}
         try:
             snap = await poly.snapshot_option_chain(symU, limit=250, max_pages=6)
-            out["options"]["top"] = []
-            for r in (snap.get("results") or []):
-                o = r.get("details") or {}
-                q = r.get("last_quote") or {}
-                t = r.get("last_trade") or {}
-                g = r.get("greeks") or {}
-                oi = r.get("open_interest") or {}
-                iv = r.get("implied_volatility") or {}
-                meta = r.get("options") or {}
-                symbol_opt = meta.get("symbol")
-                a, b = q.get("ask"), q.get("bid")
-                sp = (round(((a-b)/a)*100, 2) if (a and a>0 and b is not None) else None)
-                out["options"]["top"].append({
-                    "symbol": symbol_opt,
-                    "type": ("call" if meta.get("contract_type")=="call" else "put"),
-                    "strike": meta.get("strike_price") or o.get("strike_price"),
-                    "expiry": meta.get("expiration_date") or o.get("expiration_date"),
-                    "bid": b, "ask": a, "last": (t.get("price") or r.get("day",{}).get("close")),
-                    "delta": g.get("delta"), "gamma": g.get("gamma"), "theta": g.get("theta"),
-                    "iv": iv.get("iv") if isinstance(iv, dict) else iv,
-                    "oi": (oi.get("oi") if isinstance(oi, dict) else oi),
-                    "volume": r.get("day",{}).get("volume"),
-                    "spread_pct": sp,
-                    "bars": {"tf": None, "count": 0}
-                })
-            # Keep your sorting/scoring if you want; this returns raw top list
-            out["options"]["top"] = out["options"]["top"][:6]
+            out["options"]["top"] = filter_and_rank_options(
+                rows=(snap.get("results") or []),
+                expiry=expiry, horizon=horizon, max_spread=max_spread, topK=topK
+            )
         except Exception as e:
             errs["options"] = f"{type(e).__name__}: {e}"
 
-        # CONFIDENCE stub (kept as-is)
-        out["regime"] = {"trend": None}
+        # CONFIDENCE (keep simple; GPT explains)
         out["confidence"] = {"score": 50, "details": []}
+        out["regime"] = {"trend": None}
 
+        # Write symbol
         snapshot["symbols"][symU] = out
         if errs: snapshot["errors"][symU] = errs
 

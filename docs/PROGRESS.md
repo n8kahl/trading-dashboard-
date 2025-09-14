@@ -1,10 +1,10 @@
 # Progress — 2025-09-14
 
 Summary
-- Closed RED items R1–R4: strict API key gate, sensitive router protection, optional WS tokens, Polygon-backed news, Alembic baseline migrations.
-- Added `/api/v1/auth/ws-token` and `/api/v1/news` routes; secured coach, broker, plan, sizing, alerts, journal, settings, compose/analyze.
-- Alembic initialized with `narratives` and `playbook_entries`; `alembic upgrade head` can run when `DATABASE_URL` is set.
-- All tests pass locally (43 passed).
+- Phase 1 (R1–R4) done. Phase 2 (Y1) done. Phase 3 started (Y2 snapshot-on-connect).
+- Added `/api/v1/auth/ws-token`, `/api/v1/news`, and `/api/v1/coach/stream` (SSE narrator). Secured sensitive routers including stream state.
+- `/api/v1/stream/state` now returns positions, orders, risk, stream status, and last prices for watched symbols.
+- Alembic baseline ready; tests green (43 passed).
 
 Security & Platform
 - API key hardening: `app/security.py` now denies by default when `API_KEY` is unset; mismatches return 401.
@@ -18,10 +18,12 @@ Database
 - Alembic scaffolded (`alembic.ini`, `alembic/env.py`, `alembic/versions/0001_baseline.py`).
 - Models added: `app/models/narrative.py`, `app/models/playbook.py`.
 
-Next Up
-- Y1: SSE Trade Narrator `/api/v1/coach/stream` with Chat Data client and debounce.
-- R5: Tradier OCO/bracket order preview/place with journaling.
-- Y3/Y5: Observability (request IDs, timing) and per‑IP rate limiting.
+Phase 2 — Completed
+- Y1: SSE Trade Narrator `/api/v1/coach/stream` implemented; streams JSON every ~3s; best‑effort persistence to `narratives`.
+
+Phase 3 — In Progress
+- Y2: Snapshot on connect implemented via `/api/v1/stream/state` (secured).
+- Next: R5 (OCO/bracket orders), Y3 (observability: request IDs, timing), Y5 (per‑IP rate limiting), Y4 (SSE cadence/delta rules).
 
 —
 # Progress — 2025-09-13

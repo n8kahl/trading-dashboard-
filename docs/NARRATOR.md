@@ -28,5 +28,4 @@ Client Handling
 - UI surfaces guidance, band/horizon, confidence, and why-rationale; past messages available via history endpoint (planned)
 
 Status
-- Pending implementation (Y1). Backing models and Alembic baseline are in place.
-
+- Implemented (Y1). Endpoint: `GET /api/v1/coach/stream?symbol=AAPL` (secured via `X-API-Key`). Emits JSON every ~3s.

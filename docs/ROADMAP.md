@@ -15,6 +15,9 @@ Last reviewed: 2025-09-14
 - [x] R3 — News: provider‑backed `/api/v1/news` (Polygon) with 120s cache and URL de‑dupe; graceful empty when key missing.
 - [x] R4 — Alembic: repo initialized; baseline creates `narratives` and `playbook_entries`.
 
+## Phase 2 — SSE Narrator
+- [x] Y1 — `/api/v1/coach/stream` streaming situation + guidance every ~3s (Chat Data backed)
+
 ## M1 — Live Prices & Alerts
 - [x] Polygon WS client publishes `price` for watchlist symbols.
 - [ ] Alerts CRUD with validation; list/create/update/delete.  (update route pending)
@@ -39,8 +42,7 @@ Last reviewed: 2025-09-14
 - [x] Security posture: API key required for sensitive routes; WS tokenization implemented (optional).
 
 ## Upcoming (YELLOW/GREEN)
-- [ ] Y1 — SSE Narrator: `/api/v1/coach/stream` using Chat Data with steady cadence and debounced updates.
-- [ ] Y2 — Snapshot on connect: `/api/v1/stream/state` to seed frontend before ticks.
+- [x] Y2 — Snapshot on connect: `/api/v1/stream/state` to seed frontend before ticks. (implemented)
 - [ ] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
 - [ ] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
 - [ ] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.

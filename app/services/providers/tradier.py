@@ -1,6 +1,11 @@
 from __future__ import annotations
 import os, httpx
 from typing import Dict, Any
+try:
+    from app.services.rate_limiter import get_tradier_limiter
+    _trad_rl = get_tradier_limiter()
+except Exception:
+    _trad_rl = None
 
 def _resolve_base() -> str:
     # Priority: explicit TRADIER_BASE, else TRADIER_ENV
@@ -31,8 +36,12 @@ class TradierMarket:
         self.timeout = timeout
 
     def _headers(self) -> Dict[str, str]:
+        token = _resolve_token()
+        auth = token or ""
+        if auth and not auth.lower().startswith("bearer "):
+            auth = f"Bearer {auth}"
         return {
-            "Authorization": f"Bearer {TRADIER_TOKEN}",
+            "Authorization": auth,
             "Accept": "application/json",
         }
 
@@ -43,6 +52,8 @@ class TradierMarket:
         url = f"{_resolve_base()}/markets/quotes"
         params = {"symbols": symbol.upper()}
         async with httpx.AsyncClient(timeout=self.timeout) as c:
+            if _trad_rl is not None:
+                await _trad_rl.wait(1.0)
             r = await c.get(url, headers=self._headers(), params=params)
             if r.status_code >= 400:
                 raise TradierHTTPError(f"{r.status_code}: {r.text}")

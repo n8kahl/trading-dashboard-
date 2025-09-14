@@ -1,11 +1,16 @@
 from __future__ import annotations
-import os, time, httpx, re
+import os, time, httpx, re, asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from datetime import datetime, timedelta, timezone
 
 API_KEY = os.getenv("POLYGON_API_KEY", "")
 BASE = "https://api.polygon.io"
+try:
+    from app.services.rate_limiter import get_polygon_limiter
+    _poly_rl = get_polygon_limiter()
+except Exception:
+    _poly_rl = None
 
 # ---------- tiny cache to avoid spamming Polygon ----------
 _CACHE: Dict[str, Dict[str, Any]] = {}
@@ -63,9 +68,11 @@ class PolygonMarket:
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             backoff = 0.25
             for _ in range(5):
+                if _poly_rl is not None:
+                    await _poly_rl.wait(1.0)
                 r = await c.get(url, params=_p(params))
                 if r.status_code in (429,) or 500 <= r.status_code < 600:
-                    time.sleep(backoff)
+                    await asyncio.sleep(backoff)
                     backoff = min(2.0, backoff * 2)
                     continue
                 r.raise_for_status()
@@ -222,3 +229,51 @@ class PolygonMarket:
                     break
 
         return {"results": out}
+
+    # Back-compat shim: some routes expect `snapshot_chain(sym, req)`
+    async def snapshot_chain(self, underlying: str, req: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Alias to `snapshot_option_chain` accepting a generic request dict.
+        Recognizes `limit` or `topK` keys to size the page; ignores greeks/expiry filters here.
+        """
+        req = req or {}
+        # Try to size reasonably: if caller asks for topK, fetch a few pages worth to ensure coverage
+        topK = 0
+        try:
+            topK = int(req.get("topK", 0))
+        except Exception:
+            topK = 0
+        # Fetch up to 3 pages if small topK; otherwise default pagination
+        per = min(max(1, int(req.get("limit", max(100, topK * 50) if topK else 250))), 250)
+        pages = 3 if topK and topK <= 12 else 6
+        return await self.snapshot_option_chain(underlying, limit=per, max_pages=pages)
+
+    # ---------- Single option NBBO quote (v3) ----------
+    async def option_quote(self, option_symbol: str) -> Dict[str, Any]:
+        url = f"{BASE}/v3/quotes/options/{option_symbol}"
+        if _poly_rl is not None:
+            await _poly_rl.wait(1.0)
+        j = await self._get(url, None, cache_ttl=0)
+        # Normalize best-effort
+        r = None
+        if isinstance(j.get("results"), list) and j.get("results"):
+            r = j["results"][0]
+        elif isinstance(j.get("results"), dict):
+            r = j.get("results")
+        r = r or {}
+        def _num(x):
+            if isinstance(x, (int, float)):
+                return float(x)
+            if isinstance(x, dict):
+                return x.get("price") or x.get("p") or x.get("bid") or x.get("ask")
+            return None
+        bid = _num(r.get("bid"))
+        ask = _num(r.get("ask"))
+        last = _num((r.get("last") or r.get("price") or {}))
+        t = r.get("sip_timestamp") or r.get("t")
+        out = {"symbol": option_symbol, "bid": bid, "ask": ask, "last": last, "t": t}
+        if bid is not None and ask is not None and ask > 0:
+            try:
+                out["spread_pct"] = round(((ask - bid)/ask)*100.0, 2)
+            except Exception:
+                pass
+        return out

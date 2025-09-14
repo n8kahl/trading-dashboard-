@@ -1,3 +1,9 @@
+"""
+Legacy assistant router (archived).
+
+This module is not included by app.main and remains for reference only.
+New integrations and routes live in app/routers/assistant_api.py.
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

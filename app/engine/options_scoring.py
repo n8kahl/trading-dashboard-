@@ -27,16 +27,30 @@ def _spread_quality(spread_pct: Optional[float]) -> float:
         return 0.5
     return max(0.0, 1.0 - min(1.0, spread_pct/12.0))
 
-def _liquidity(oi: Optional[int], vol: Optional[int]) -> float:
+def _liquidity(oi: Optional[int], vol: Optional[int], vol_oi_ratio: Optional[float] = None) -> float:
     oi = oi or 0
     vol = vol or 0
-    return min(1.0, (oi/1000.0 + vol/5000.0))
+    base = min(1.0, (oi/1000.0 + vol/5000.0))
+    if vol_oi_ratio is None:
+        return base
+    # Favor healthy turnover: ~1.0 ratio ~ neutral; 1.5+ begins to saturate
+    trend = max(0.0, min(1.0, (vol_oi_ratio) / 1.5))
+    return 0.7*base + 0.3*trend
 
 def _iv_bucket(iv: Optional[float]) -> float:
     # Prefer mid-range IV; neutral if unknown
     if iv is None:
         return 0.5
     return 1.0 - min(1.0, abs(iv - 0.25)/0.40)
+
+def _iv_percentile_score(pct: Optional[float]) -> float:
+    """Score IV percentile with preference for mid‑range (~50th)."""
+    if pct is None:
+        return 0.5
+    # Clamp 0..100
+    p = max(0.0, min(100.0, float(pct)))
+    # 50 -> 1.0, 0/100 -> 0.0 (linear)
+    return 1.0 - min(1.0, abs(p - 50.0) / 50.0)
 
 def _age_score(age_secs: Optional[float]) -> float:
     # Favor fresher prints; if unknown, neutral
@@ -56,14 +70,21 @@ def tradeability_score(contract: Dict[str, Any], horizon: str = "intraday", weig
     oi = _safe(contract.get("oi"), 0)
     vol = _safe(contract.get("volume"), 0)
     iv  = _safe(contract.get("iv"))
+    vol_oi_ratio = None
+    try:
+        if oi and vol is not None:
+            vol_oi_ratio = (vol / float(oi)) if oi else None
+    except Exception:
+        vol_oi_ratio = None
     # If you pass last_trade time into the contract later, compute age here. For now, neutral.
     age = None
 
     comps = {
         "delta_fit": _delta_fit(delta, horizon),
         "spread_stability": _spread_quality(spread_pct),
-        "liquidity": _liquidity(oi, vol),
-        "iv_percentile": _iv_bucket(iv),
+        "liquidity": _liquidity(oi, vol, vol_oi_ratio),
+        # Prefer provided iv_percentile if present, else fall back to absolute IV bucket
+        "iv_percentile": _iv_percentile_score(contract.get("iv_percentile")) if contract.get("iv_percentile") is not None else _iv_bucket(iv),
         "age": _age_score(age)
     }
     score = (
@@ -120,3 +141,54 @@ def probability_of_touch(distance: float, sigma_abs: float, T_hours: float = 6.5
     phi = 0.5*(1.0 + math.erf(z / math.sqrt(2)))
     p = 2.0 * (1.0 - phi)
     return max(0.0, min(1.0, p))
+
+def expected_value_intraday(contract: Dict[str, Any], last_price: Optional[float], em_abs: Optional[float], horizon: str = "intraday", slippage_mult: float = 0.35) -> tuple[Optional[float], Dict[str, Any]]:
+    """
+    Very lightweight EV proxy for ranking, not pricing:
+    - TP at +0.5*EM (underlying); SL at -0.25*EM.
+    - Approx option move via delta: dP ≈ delta * dS.
+    - Roundtrip slippage ≈ slippage_mult * spread per side (2x).
+    Returns (ev_dollars, breakdown), ev_dollars is None if insufficient fields.
+    """
+    try:
+        if em_abs is None:
+            return None, {"reason": "no_em"}
+        d = contract.get("delta")
+        bid = contract.get("bid"); ask = contract.get("ask"); last_q = contract.get("last")
+        if d is None:
+            return None, {"reason": "no_delta"}
+        mid = None
+        if bid is not None and ask is not None and ask > 0:
+            mid = (bid + ask)/2.0
+        elif last_q is not None:
+            mid = float(last_q)
+        if mid is None or mid <= 0:
+            return None, {"reason": "no_mid"}
+
+        # Distances on underlying
+        tp_dS = 0.5 * em_abs
+        sl_dS = 0.25 * em_abs
+        p_tp = probability_of_touch(tp_dS, em_abs) or 0.0
+        p_sl = probability_of_touch(sl_dS, em_abs) or 0.0
+        # crude dependency adjust to avoid overcounting
+        p_tp_eff = max(0.0, min(1.0, p_tp - 0.5*p_sl))
+
+        # Dollar moves on option via delta (ignore curvature)
+        gain = max(0.0, abs(d) * tp_dS)
+        loss = max(0.0, abs(d) * sl_dS)
+
+        spread = (ask - bid) if (bid is not None and ask is not None) else 0.0
+        slip_round = max(0.0, (spread or 0.0) * (slippage_mult * 2.0))
+
+        ev = p_tp_eff * max(0.0, gain - slip_round) - p_sl * max(0.0, loss + slip_round)
+        bd = {
+            "tp_dS": tp_dS, "sl_dS": sl_dS,
+            "p_tp": round(p_tp,4), "p_sl": round(p_sl,4),
+            "p_tp_eff": round(p_tp_eff,4),
+            "gain": round(gain,4), "loss": round(loss,4),
+            "slip_round": round(slip_round,4),
+            "mid": round(mid,4)
+        }
+        return ev, bd
+    except Exception as e:
+        return None, {"error": f"{type(e).__name__}: {e}"}

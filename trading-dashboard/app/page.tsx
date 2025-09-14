@@ -75,6 +75,14 @@ export default function Page() {
       return apiPost("/api/v1/compose-and-analyze", body);
     }
   });
+  const levels = useMemo(() => {
+    const data = (analyze?.data as any)?.data || analyze?.data as any;
+    const p = data?.plan;
+    if (p) {
+      return { entry: Number(p.entry), stop: Number(p.stop), tp1: Number(p.tp1), tp2: Number(p.tp2) };
+    }
+    return {} as any;
+  }, [analyze.data]);
 
   const alertMut = useMutation({
     mutationFn: (args: {symbol:string; timeframe?: 'minute'|'day'; type: 'price_above'|'price_below'; value:number; threshold_pct?: number}) =>
@@ -236,7 +244,7 @@ export default function Page() {
 
       <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:12, marginTop:12}}>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
-          <LiveChart symbol={ticker} />
+          <LiveChart symbol={ticker} levels={levels} />
         </div>
         <div style={{display:"flex", flexDirection:"column", gap:12}}>
           {process.env.NEXT_PUBLIC_DISABLE_NARRATOR === '1' ? null : <NarrativeTicker symbol={ticker} />}
@@ -272,7 +280,8 @@ function bandMeta(score?: number): { label: string; color: string } {
 }
 
 function ConfidencePanel({ ticker, analyze }: { ticker: string; analyze: any }) {
-  const data = analyze?.data;
+  const raw = analyze?.data as any;
+  const data = (raw?.data || raw) as any;
   const analysis = data?.analysis || null;
   const score: number | undefined = analysis?.score;
   const meta = bandMeta(score);

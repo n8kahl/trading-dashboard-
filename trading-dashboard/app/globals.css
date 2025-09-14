@@ -50,3 +50,7 @@ pre,code,kbd,samp{
   border-radius:8px;
   padding:8px 10px;
 }
+
+/* mobile helpers */
+.mobile-only{ display:block }
+@media (min-width: 640px){ .mobile-only{ display:none } }

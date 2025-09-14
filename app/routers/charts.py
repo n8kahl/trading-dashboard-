@@ -11,11 +11,14 @@ async def chart_proposal(
     symbol: str,
     interval: str = Query("1m"),
     lookback: int = 390,
-    overlays: str = Query("vwap,ema20,ema50"),
+    overlays: str = Query("vwap,ema20,ema50,pivots"),
     entry: float | None = None,
     sl: float | None = None,
     tp1: float | None = None,
     tp2: float | None = None,
+    entry_time: int | None = None,
+    direction: str = Query("long"),
+    confluence: str = Query(""),
     theme: str = Query("dark"),
     width: int = 1200,
     height: int = 650,
@@ -41,18 +44,23 @@ async def chart_proposal(
     #wrap {{ width: {width}px; height: {height}px; margin: 0 auto; }}
     #chart {{ width: 100%; height: 100%; }}
     .legend {{ position:absolute; left:8px; top:8px; color:{('#c9d1d9' if theme=='dark' else '#111')}; font: 12px/1.4 -apple-system,Segoe UI,Arial; background: transparent; }}
-  </style>
+    .badges {{ position:absolute; right:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:50%; }}
+    .badge {{ padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid {('#30363d' if theme=='dark' else '#ddd')}; color:{('#c9d1d9' if theme=='dark' else '#111')}; background:{('#161b22' if theme=='dark' else '#f8f8f8')}; }}
+</style>
 </head>
 <body>
   <div id=\"wrap\">
     <div id=\"chart\"></div>
     <div class=\"legend\" id=\"legend\">{sym} {interval} · overlays: {overlays}</div>
+    <div class=\"badges\" id=\"badges\"></div>
   </div>
   <script>
     const params = new URLSearchParams({{ symbol: '{sym}', interval: '{interval}', lookback: '{lookback}' }});
     const url = `/api/v1/market/bars?` + params.toString();
+    const levelsUrl = `/api/v1/market/levels?symbol={sym}`;
     const theme = '{theme}';
     const want = (name) => '{overlays}'.split(',').map(s => s.trim().toLowerCase()).includes(name);
+    const confluence = '{escape(confluence)}'.split(',').map(s => s.trim()).filter(Boolean);
 
     function ema(values, period) {{
       const k = 2/(period+1);
@@ -124,6 +132,7 @@ async def chart_proposal(
       const sl = p({sl});
       const tp1 = p({tp1});
       const tp2 = p({tp2});
+      const entryTime = {int(entry_time) if entry_time else 'null'};
       function priceLine(value, title, color) {{
         if (value===null) return;
         candleSeries.createPriceLine({{ price: value, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }});
@@ -132,6 +141,46 @@ async def chart_proposal(
       priceLine(sl, 'STOP', '#ef4444');
       priceLine(tp1, 'TP1', '#60a5fa');
       priceLine(tp2, 'TP2', '#60a5fa');
+
+      // Optional entry marker (requires entry_time ms since epoch)
+      if (entryTime) {{
+        const marker = {{
+          time: Math.floor(entryTime/1000),
+          position: '{'belowBar' if (direction.lower()=='long') else 'aboveBar'}',
+          color: '{'#16a34a' if (direction.lower()=='long') else '#ef4444'}',
+          shape: '{'arrowUp' if (direction.lower()=='long') else 'arrowDown'}',
+          text: 'Entry'
+        }};
+        candleSeries.setMarkers([marker]);
+      }}
+
+      // Pivots/levels
+      if (want('pivots') || want('levels')) {{
+        try {{
+          const levResp = await fetch(levelsUrl);
+          const L = await levResp.json();
+          if (L.ok && L.pivots) {{
+            const colors = {{ P: '#999', R1: '#f59e0b', R2: '#f59e0b', S1: '#3b82f6', S2: '#3b82f6' }};
+            for (const k of Object.keys(L.pivots)) {{
+              const val = L.pivots[k];
+              if (val!==null && val!==undefined) {{
+                candleSeries.createPriceLine({{ price: Number(val), color: colors[k]||'#888', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: k }});
+              }}
+            }}
+          }}
+        }} catch (e) {{}}
+      }}
+
+      // Confluence badges
+      const badges = document.getElementById('badges');
+      if (confluence && confluence.length) {{
+        for (const name of confluence) {{
+          const b = document.createElement('span');
+          b.className = 'badge';
+          b.textContent = name;
+          badges.appendChild(b);
+        }}
+      }}
     }}
     main();
   </script>
@@ -139,4 +188,3 @@ async def chart_proposal(
 </html>
     """
     return Response(content=html, media_type="text/html; charset=utf-8")
-

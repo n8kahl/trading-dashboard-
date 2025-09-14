@@ -15,6 +15,32 @@ export default function PositionCoach({ symbol, positionId }: Props) {
 
   const disabled = false; // TODO: bound to risk breach from store
 
+  const postJson = async (path: string, body: any) => {
+    const res = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json().catch(()=> ({}));
+  };
+
+  const onTrim = async () => {
+    const qtyStr = window.prompt("Trim quantity (shares)", "1");
+    const qty = qtyStr ? Number(qtyStr) : NaN;
+    if (!Number.isFinite(qty) || qty <= 0) return;
+    try { await postJson("/broker/tradier/order", { symbol, side: "sell", quantity: qty, order_type: "market", preview: true }); alert("Trim preview sent"); } catch(e:any){ alert(e?.message ?? String(e)); }
+  };
+  const onMoveStopToVWAP = async () => {
+    try { await postJson("/journal/create", { symbol, notes: "Move stop to VWAP (coach action)" }); alert("Noted: Move stop to VWAP"); } catch(e:any){ alert(e?.message ?? String(e)); }
+  };
+  const onClose = async () => {
+    const qtyStr = window.prompt("Close quantity (shares)", "1");
+    const qty = qtyStr ? Number(qtyStr) : NaN;
+    if (!Number.isFinite(qty) || qty <= 0) return;
+    try { await postJson("/broker/tradier/order", { symbol, side: "sell", quantity: qty, order_type: "market", preview: true }); alert("Close preview sent"); } catch(e:any){ alert(e?.message ?? String(e)); }
+  };
+
   return (
     <section className="card" style={{minHeight:100}}>
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
@@ -36,11 +62,10 @@ export default function PositionCoach({ symbol, positionId }: Props) {
         </div>
       </div>
       <div style={{display:"flex", gap:8, marginTop:10, flexWrap:"wrap"}}>
-        <button className="secondary" disabled={disabled} onClick={()=>console.log("Trim clicked")}>Trim</button>
-        <button className="secondary" disabled={disabled} onClick={()=>console.log("Move Stop to VWAP")}>Move Stop → VWAP</button>
-        <button className="secondary" disabled={disabled} onClick={()=>console.log("Close position")}>Close</button>
+        <button className="secondary" disabled={disabled} onClick={onTrim}>Trim</button>
+        <button className="secondary" disabled={disabled} onClick={onMoveStopToVWAP}>Move Stop → VWAP</button>
+        <button className="secondary" disabled={disabled} onClick={onClose}>Close</button>
       </div>
     </section>
   );
 }
-

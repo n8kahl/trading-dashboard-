@@ -30,6 +30,21 @@ export default function SettingsPage() {
     mutationFn: async () => apiPost("/api/v1/settings/set", local),
   });
 
+  const sendTest = useMutation({
+    mutationFn: async () => {
+      const url = local?.discord_webhook_url || "";
+      // very light validation
+      if (!/^https:\/\/discord\.com\//.test(url) && !/^https:\/\/discordapp\.com\//.test(url)) {
+        throw new Error("Invalid Discord webhook URL");
+      }
+      const res = await fetch(`/api/proxy?path=${encodeURIComponent('/settings/discord/test')}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const js = await res.json();
+      if (!js?.ok) throw new Error(js?.error || 'Test failed');
+      return js;
+    }
+  });
+
   return (
     <main className="container">
       <h1 style={{marginBottom:12}}>Admin Settings</h1>
@@ -66,8 +81,9 @@ export default function SettingsPage() {
           <label style={{gridColumn:"1 / -1"}}>Alert types (comma-separated)
             <input className="input" placeholder="price_above,price_below,risk" value={local?.discord_alert_types ?? ''} onChange={e=>setLocal(v=>({...v!, discord_alert_types: e.target.value}))} />
           </label>
-          <div style={{gridColumn:"1 / span 2"}}>
+          <div style={{gridColumn:"1 / span 2", display:'flex', gap:8}}>
             <button onClick={()=> save.mutate()} disabled={!local || save.isPending}>{save.isPending?"Saving…":"Save Settings"}</button>
+            <button className="secondary" onClick={()=> sendTest.mutate()} disabled={sendTest.isPending}>Send test Discord</button>
           </div>
         </section>
       )}

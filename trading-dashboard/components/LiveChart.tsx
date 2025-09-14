@@ -22,7 +22,7 @@ export default function LiveChart({ symbol, levels }: Props) {
 
   useEffect(() => {
     if (!ref.current) return;
-    const chart = createChart(ref.current, { width: ref.current.clientWidth, height: 280, layout: { textColor: '#ddd', background: { type: 'solid', color: '#0b0b0b' }}, grid: { vertLines: { color: '#111' }, horzLines: { color: '#111' }}});
+    const chart = createChart(ref.current, { width: ref.current.clientWidth, height: 280, layout: { textColor: '#ddd', background: { color: '#0b0b0b' }}, grid: { vertLines: { color: '#111' }, horzLines: { color: '#111' }}});
     const candle = chart.addCandlestickSeries({});
     candleRef.current = candle;
     const ema9: ISeriesApi<'Line'> = chart.addLineSeries({ color: '#22d3ee', lineWidth: 1 });
@@ -30,7 +30,7 @@ export default function LiveChart({ symbol, levels }: Props) {
     const vwap = chart.addLineSeries({ color: '#60a5fa', lineWidth: 1 });
     vwapRef.current = vwap;
 
-    let cleanup = () => { chart.remove(); };
+    const cleanup = () => { chart.remove(); };
 
     (async () => {
       try {

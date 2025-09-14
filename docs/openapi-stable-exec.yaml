@@ -57,7 +57,6 @@ paths:
 
 components:
   schemas:
-    # Permissive object that satisfies strict validators
     FreeFormObject:
       type: object
       properties: {}

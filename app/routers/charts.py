@@ -62,6 +62,10 @@ async def chart_proposal(
     .panel li { margin: 3px 0; }
     .badges { position:absolute; right:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:50%; }
     .badge { padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid ${BORDER}; color:${TEXT}; background:${BADGE_BG}; }
+    .tools { position:absolute; right:8px; top:44px; display:flex; align-items:center; gap:6px; background:${BADGE_BG}; border:1px solid ${BORDER}; border-radius:8px; padding:6px 8px; }
+    .tools label { font-size:11px; color:${TEXT}; margin-right:2px; }
+    .tools input[type=checkbox] { vertical-align:middle; }
+    .tools select, .tools button { font-size:11px; padding:3px 6px; border-radius:6px; border:1px solid ${BORDER}; background:${BG}; color:${TEXT}; }
   </style>
 </head>
 <body>
@@ -69,6 +73,21 @@ async def chart_proposal(
     <div id="chart"></div>
     <div class="legend" id="legend">${SYM} ${INTERVAL} · overlays: ${OVERLAYS}</div>
     <div class="badges" id="badges"></div>
+    <div class="tools" id="tools">
+      <label for="selInterval">Interval</label>
+      <select id="selInterval">
+        <option value="1m">1m</option>
+        <option value="5m">5m</option>
+        <option value="1d">1d</option>
+      </select>
+      <label><input type="checkbox" id="ov-vwap"> VWAP</label>
+      <label><input type="checkbox" id="ov-ema20"> EMA20</label>
+      <label><input type="checkbox" id="ov-ema50"> EMA50</label>
+      <label><input type="checkbox" id="ov-pivots"> Pivots</label>
+      <button id="btnApply">Apply</button>
+      <button id="btnFit">Fit</button>
+      <button id="btnRefresh">Refresh</button>
+    </div>
     <div class="panel" id="planPanel" style="display:none"></div>
   </div>
   <script>
@@ -117,13 +136,14 @@ async def chart_proposal(
       return out;
     }
 
+    let chart = null;
     async function main() {
       const el = document.getElementById('chart');
       if (typeof LightweightCharts === 'undefined') {
         el.innerHTML = '<div style="color:#f00;padding:16px">Chart library failed to load. Please allow CDN scripts or try again.</div>';
         return;
       }
-      const chart = LightweightCharts.createChart(el, {
+      chart = LightweightCharts.createChart(el, {
         autoSize: true,
         layout: { background: { type: 'Solid', color: '${BG}' }, textColor: '${TEXT}' },
         rightPriceScale: { borderVisible: false },
@@ -249,17 +269,56 @@ async def chart_proposal(
       // Make legend text more intuitive
       try { document.getElementById('legend').textContent = '${SYM} ${INTERVAL} • ' + prettyOverlays(); } catch (e) {}
 
-      // Strategy plan panel for beginners
-      const panel = document.getElementById('planPanel');
-      if (planRaw && panel) {
-        const items = planRaw.split('|').map(s => s.trim()).filter(Boolean);
-        let html = '<h4>Strategy Plan</h4>';
-        if (items.length) {
-          html += '<ul>' + items.map(s => '<li>'+s.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</li>').join('') + '</ul>';
-        } else {
-          html += '<div>Use EM: take Target 1 at 0.25×EM and Target 2 at 0.5×EM. Place Stop just beyond invalidation. Watch VWAP and pivots for confirmation.</div>';
+      // Tools: initialize states and handlers
+      const iv = document.getElementById('selInterval'); if (iv) iv.value='${INTERVAL}';
+      const has = (name) => '${OVERLAYS}'.toLowerCase().split(',').includes(name);
+      const setChk = (id, on) => { const el=document.getElementById(id); if (el) el.checked=!!on; };
+      setChk('ov-vwap', has('vwap'));
+      setChk('ov-ema20', has('ema20'));
+      setChk('ov-ema50', has('ema50'));
+      setChk('ov-pivots', has('pivots') || has('levels'));
+      const on = (id, fn) => { const el=document.getElementById(id); if (el) el.onclick = fn; };
+      on('btnRefresh', ()=>location.reload());
+      on('btnFit', ()=>{ try { chart.timeScale().fitContent(); } catch(e){} });
+      on('btnApply', ()=>{
+        const ov=[];
+        if (document.getElementById('ov-vwap').checked) ov.push('vwap');
+        if (document.getElementById('ov-ema20').checked) ov.push('ema20');
+        if (document.getElementById('ov-ema50').checked) ov.push('ema50');
+        if (document.getElementById('ov-pivots').checked) ov.push('pivots');
+        const params = new URLSearchParams(location.search);
+        params.set('interval', document.getElementById('selInterval').value);
+        params.set('overlays', ov.join(','));
+        // Adjust default lookback per interval if not explicitly set
+        if (!params.get('lookback')) {
+          const itv = params.get('interval');
+          params.set('lookback', itv==='1d'? '180' : itv==='5m'? '300' : '390');
         }
-        panel.innerHTML = html; panel.style.display = 'block';
+        location.search = params.toString();
+      });
+
+      // Strategy plan panel for beginners (auto text if not provided)
+      const panel = document.getElementById('planPanel');
+      if (panel) {
+        const items = (planRaw||'').split('|').map(s=>s.trim()).filter(Boolean);
+        const last = data[data.length-1].close;
+        const vwapArr = computeVWAP(bars); const vwapLast = (vwapArr.slice(-1)[0]||{}).value;
+        const state = (vwapLast!=null && !isNaN(vwapLast)) ? (last>=vwapLast ? 'Price is above VWAP (bullish bias)' : 'Price is below VWAP (bearish bias)') : 'VWAP unavailable';
+        let html = '<h4>Strategy Plan</h4>';
+        html += '<div>'+state+'. Use VWAP and Pivots as context (P/R/S lines).</div>';
+        const list = items.length? items : (function(){
+          const b=[];
+          if (dir==='long') { b.push('Step 1 — Confirmation: wait for a clean break and 1–2 candles to hold above Entry.'); b.push('Step 2 — Entry: buy on a quick retest that holds (avoid chasing).'); }
+          else { b.push('Step 1 — Confirmation: wait for a clean break and 1–2 candles to hold below Entry.'); b.push('Step 2 — Entry: short on a quick retest that fails (avoid chasing).'); }
+          b.push('Risk — Stop Loss at the red line; exit quickly if hit.');
+          b.push('Targets — Take partial at Target 1 (~0.25×EM); consider runner to Target 2 (~0.50×EM).');
+          if (h1!=null) b.push('Approx P(Target 1) ~ '+h1.toFixed(0)+'% (touch probability).');
+          if (h2!=null) b.push('Approx P(Target 2) ~ '+h2.toFixed(0)+'% (touch probability).');
+          b.push('Skip/Size Down — if spreads widen, quotes unstable, or liquidity is light.');
+          return b;
+        })();
+        html += '<ul>' + list.map(s=>'<li>'+s.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</li>').join('') + '</ul>';
+        panel.innerHTML = html; panel.style.display='block';
       }
     }
     (function bootstrap(){

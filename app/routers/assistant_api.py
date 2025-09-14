@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/v1")
 
 # ---------- Dynamic provider imports (robust, non-fatal) ----------
 from importlib import import_module as _im
+from app.engine.risk_flags import compute_risk_flags
 
 PolygonMarket = None
 TradierMarket = None
@@ -171,7 +172,7 @@ class ExecRequest(BaseModel):
 
 @router.get("/assistant/actions")
 async def assistant_actions() -> Dict[str, Any]:
-    return {"ok": True, "ops": ["data.snapshot"], "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}, "import_errors": _prov_err}
+    return {"ok": True, "ops": ["data.snapshot", "assistant.hedge"], "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}, "import_errors": _prov_err}
 
 @router.post("/assistant/exec")
 async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
@@ -559,10 +560,15 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
         picks, em_abs, em_rel, opt_ctx = await options_top(sym, lp)
         if picks:
             out.setdefault("options", {})["top"] = picks
+        providers_info = {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}
         if em_abs is not None:
             out.setdefault("context", {})["expected_move"] = {"abs": em_abs, "rel": em_rel}
         if opt_ctx:
             out.setdefault("context", {}).update(opt_ctx)
+        # Phase 5: simple risk flags
+        picks_local = (out.get("options") or {}).get("top") or []
+        liq_trend = (out.get("context") or {}).get("liquidity_trend")
+        out.setdefault("context", {})["risk_flags"] = compute_risk_flags(picks_local, liq_trend, providers_info)
 
         # If "levels" were requested but we don't have enough bars off-hours, return an empty object instead of null.
         if "levels" in include:

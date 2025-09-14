@@ -9,10 +9,7 @@ def _hdrs():
     auth = TOKEN
     if auth and not auth.lower().startswith("bearer "):
         auth = f"Bearer {auth}"
-    return {
-        "Authorization": auth,
-        "Accept": "application/json",
-    }
+    return {"Authorization": auth, "Accept": "application/json"}
 
 class TradierClient:
     def __init__(self, timeout: float = 8.0):
@@ -20,7 +17,7 @@ class TradierClient:
 
     async def account_balances(self) -> dict:
         if not ACCOUNT_ID:
-            return {}
+            return {"balances": {}}
         url = f"{BASE}/accounts/{ACCOUNT_ID}/balances"
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             r = await c.get(url, headers=_hdrs())

@@ -9,7 +9,6 @@ class PolygonClient:
         self.timeout = timeout
 
     async def last_quote(self, symbol: str) -> dict:
-        """NBBO quote (very small payload)."""
         url = f"{BASE}/v2/last/nbbo/{symbol.upper()}"
         params = {"apiKey": API_KEY}
         async with httpx.AsyncClient(timeout=self.timeout) as c:
@@ -17,15 +16,9 @@ class PolygonClient:
             r.raise_for_status()
             j = r.json() or {}
         res = j.get("results") or {}
-        return {
-            "symbol": symbol.upper(),
-            "bid": res.get("bP"),
-            "ask": res.get("aP"),
-            "t": res.get("t"),
-        }
+        return {"symbol": symbol.upper(), "bid": res.get("bP"), "ask": res.get("aP"), "t": res.get("t")}
 
     async def snapshot_stock(self, symbol: str) -> dict:
-        """Simple snapshot (day/min). Swap with your MCP if preferred."""
         url = f"{BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}"
         params = {"apiKey": API_KEY}
         async with httpx.AsyncClient(timeout=self.timeout) as c:
@@ -36,14 +29,7 @@ class PolygonClient:
         day = t.get("day") or {}
         minute = t.get("min") or {}
         price = (minute.get("c") if minute else None) or day.get("c")
-        return {
-            "symbol": symbol.upper(),
-            "price": price,
-            "day": day,
-            "min": minute,
-        }
+        return {"symbol": symbol.upper(), "price": price, "day": day, "min": minute}
 
     async def options_chain_light(self, symbol: str, expiry: str | None = None) -> dict:
-        """Placeholder: return a minimal shape; expand as needed."""
-        # Implement proper Polygon options/greeks endpoints here if desired.
         return {"symbol": symbol.upper(), "expiry": expiry, "items": []}

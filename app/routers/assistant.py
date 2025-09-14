@@ -238,7 +238,7 @@ def filter_and_rank_options(rows: List[Dict[str, Any]], expiry: str, horizon: st
 @router.post("/exec")
 @memo(ttl=30.0)
 async def _cached_chain_snapshot(poly, symU, opts):
-    return await poly.snapshot_chain(symU, opts)
+    return await _cached_chain_snapshot(symU, opts)
 
 async def assistant_exec(payload: Dict[str, Any]):
 

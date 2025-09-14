@@ -32,6 +32,10 @@ class Settings(BaseModel):
     FINNHUB_API_KEY: Optional[str] = os.getenv("FINNHUB_API_KEY")
     ALERT_POLL_SEC: int = int(os.getenv("ALERT_POLL_SEC", "15"))
 
+    # Rate limiting (per-IP)
+    RATE_LIMIT_NEWS_PER_MIN: int = int(os.getenv("RATE_LIMIT_NEWS_PER_MIN", "30"))
+    RATE_LIMIT_COACH_PER_MIN: int = int(os.getenv("RATE_LIMIT_COACH_PER_MIN", "10"))
+
 
 settings = Settings()
 

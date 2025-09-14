@@ -5,7 +5,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from app.core.settings import settings
+from app.rate_limit import allow as rl_allow
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -43,7 +45,7 @@ async def _polygon_news(symbol: str, limit: int) -> List[Dict[str, Any]]:
 
 
 @router.get("")
-async def get_news(symbols: str = Query("SPY"), limit: int = Query(10)) -> Dict[str, Any]:
+async def get_news(request: Request, symbols: str = Query("SPY"), limit: int = Query(10)) -> Dict[str, Any]:
     """Return recent news headlines for one or more symbols via Polygon.
 
     Query params:
@@ -52,6 +54,11 @@ async def get_news(symbols: str = Query("SPY"), limit: int = Query(10)) -> Dict[
 
     Caches results for ~120s to reduce provider load.
     """
+    # Rate limit per IP
+    ip = request.client.host if request.client else "unknown"
+    if not rl_allow(f"{ip}:news", settings.RATE_LIMIT_NEWS_PER_MIN, 60):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     if not syms:
         raise HTTPException(status_code=400, detail="symbols required")
@@ -79,4 +86,3 @@ async def get_news(symbols: str = Query("SPY"), limit: int = Query(10)) -> Dict[
             combined.append(it)
 
     return {"ok": True, "items": combined}
-

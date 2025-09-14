@@ -4,12 +4,14 @@ import asyncio
 import json
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
 from app.services.llm import chatdata_narrative
 from app.services.narrative import build_situation
 from app.repositories.narratives import save_guidance
+from app.core.settings import settings
+from app.rate_limit import allow as rl_allow
 
 
 router = APIRouter(prefix="/coach", tags=["coach"])
@@ -51,9 +53,16 @@ async def _event_stream(symbol: str, position_id: Optional[str]) -> AsyncGenerat
 
 
 @router.get("/stream")
-async def coach_stream(symbol: str = Query(..., min_length=1), position_id: Optional[str] = Query(None)) -> StreamingResponse:
+async def coach_stream(
+    request: Request,
+    symbol: str = Query(..., min_length=1),
+    position_id: Optional[str] = Query(None),
+) -> StreamingResponse:
     if not symbol or not symbol.strip():
         raise HTTPException(status_code=400, detail="symbol is required")
+    # Rate limit new stream connections per IP
+    ip = request.client.host if request.client else "unknown"
+    if not rl_allow(f"{ip}:coach_stream", settings.RATE_LIMIT_COACH_PER_MIN, 60):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
     generator = _event_stream(symbol.strip().upper(), position_id)
     return StreamingResponse(generator, media_type="text/event-stream")
-

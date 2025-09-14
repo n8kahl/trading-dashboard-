@@ -46,6 +46,7 @@ Last reviewed: 2025-09-14
 - [x] Y3 — Observability: request IDs, structured JSON logs, timing for broker/chatdata.
 - [ ] Y4 — SSE backpressure: 3s cadence and significant‑delta gating.
 - [ ] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
+- [x] Y5 — Rate limiting: per‑IP sliding window on `/coach/stream` and `/news`.
 - [ ] Y6 — Broker/journal auditing: persist placed orders + narrator guidance.
 - [ ] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.
 - [x] R5 — OCO/Bracket (Tradier): preview/place entry+SL+TP and journal summary.

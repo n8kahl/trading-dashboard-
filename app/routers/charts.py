@@ -64,7 +64,6 @@ async def chart_proposal(
     .badge { padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid ${BORDER}; color:${TEXT}; background:${BADGE_BG}; }
     .tools { position:absolute; right:8px; top:44px; display:flex; align-items:center; gap:6px; background:${BADGE_BG}; border:1px solid ${BORDER}; border-radius:8px; padding:6px 8px; }
     .tools label { font-size:11px; color:${TEXT}; margin-right:2px; }
-    .tools input[type=checkbox] { vertical-align:middle; }
     .tools select, .tools button { font-size:11px; padding:3px 6px; border-radius:6px; border:1px solid ${BORDER}; background:${BG}; color:${TEXT}; }
   </style>
 </head>
@@ -74,17 +73,12 @@ async def chart_proposal(
     <div class="legend" id="legend">${SYM} ${INTERVAL} · overlays: ${OVERLAYS}</div>
     <div class="badges" id="badges"></div>
     <div class="tools" id="tools">
-      <label for="selInterval">Interval</label>
+      <label for="selInterval">Timeframe</label>
       <select id="selInterval">
         <option value="1m">1m</option>
         <option value="5m">5m</option>
         <option value="1d">1d</option>
       </select>
-      <label><input type="checkbox" id="ov-vwap"> VWAP</label>
-      <label><input type="checkbox" id="ov-ema20"> EMA20</label>
-      <label><input type="checkbox" id="ov-ema50"> EMA50</label>
-      <label><input type="checkbox" id="ov-pivots"> Pivots</label>
-      <button id="btnApply">Apply</button>
       <button id="btnFit">Fit</button>
       <button id="btnRefresh">Refresh</button>
     </div>
@@ -269,33 +263,20 @@ async def chart_proposal(
       // Make legend text more intuitive
       try { document.getElementById('legend').textContent = '${SYM} ${INTERVAL} • ' + prettyOverlays(); } catch (e) {}
 
-      // Tools: initialize states and handlers
-      const iv = document.getElementById('selInterval'); if (iv) iv.value='${INTERVAL}';
-      const has = (name) => '${OVERLAYS}'.toLowerCase().split(',').includes(name);
-      const setChk = (id, on) => { const el=document.getElementById(id); if (el) el.checked=!!on; };
-      setChk('ov-vwap', has('vwap'));
-      setChk('ov-ema20', has('ema20'));
-      setChk('ov-ema50', has('ema50'));
-      setChk('ov-pivots', has('pivots') || has('levels'));
+      // Tools: initialize states and handlers (Timeframe, Fit, Refresh)
       const on = (id, fn) => { const el=document.getElementById(id); if (el) el.onclick = fn; };
+      const iv = document.getElementById('selInterval'); if (iv) iv.value='${INTERVAL}';
       on('btnRefresh', ()=>location.reload());
       on('btnFit', ()=>{ try { chart.timeScale().fitContent(); } catch(e){} });
-      on('btnApply', ()=>{
-        const ov=[];
-        if (document.getElementById('ov-vwap').checked) ov.push('vwap');
-        if (document.getElementById('ov-ema20').checked) ov.push('ema20');
-        if (document.getElementById('ov-ema50').checked) ov.push('ema50');
-        if (document.getElementById('ov-pivots').checked) ov.push('pivots');
+      if (iv) iv.onchange = () => {
         const params = new URLSearchParams(location.search);
-        params.set('interval', document.getElementById('selInterval').value);
-        params.set('overlays', ov.join(','));
-        // Adjust default lookback per interval if not explicitly set
+        const itv = iv.value;
+        params.set('interval', itv);
         if (!params.get('lookback')) {
-          const itv = params.get('interval');
           params.set('lookback', itv==='1d'? '180' : itv==='5m'? '300' : '390');
         }
         location.search = params.toString();
-      });
+      };
 
       // Strategy plan panel for beginners (auto text if not provided)
       const panel = document.getElementById('planPanel');

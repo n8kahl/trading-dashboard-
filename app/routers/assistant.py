@@ -13,6 +13,61 @@ from app.engine.regime import analyze as regime_analyze
 from app.engine.options_scoring import tradeability_score, ScoreWeights, expected_move_from_straddle, probability_of_touch
 from app.engine.position_guidance import dynamic_trailing_stop, scale_plan, adjust_targets_for_em
 
+# ---- Provider compatibility aliases (deterministic, idempotent) ----
+# Ensure both PolygonMarket and TradierMarket symbols exist, regardless of file/class naming.
+from importlib import import_module as _import_module
+
+# Polygon
+if 'PolygonMarket' not in globals() or PolygonMarket is None:  # type: ignore
+    _poly_errs = []
+    for mod, cls in [
+        ("app.services.providers.polygon_market", "PolygonMarket"),
+        ("app.services.providers.polygon",        "PolygonMarket"),
+        ("app.services.providers.polygon_client", "PolygonClient"),
+    ]:
+        try:
+            PolygonMarket = getattr(_import_module(mod), cls)  # type: ignore
+            break
+        except Exception as e:
+            _poly_errs.append(f"{mod}.{cls} -> {type(e).__name__}: {e}")
+            PolygonMarket = None  # type: ignore
+    if PolygonMarket is None:  # type: ignore
+        _PROVIDERS_IMPORT_ERR = ("; ".join(_poly_errs))
+
+# Tradier
+# Prefer a class named TradierMarket; otherwise, alias TradierClient -> TradierMarket
+if 'TradierMarket' not in globals():  # type: ignore
+    _trad_errs = []
+    # Try common locations
+    for mod, cls in [
+        ("app.services.providers.tradier_market", "TradierMarket"),
+        ("app.services.providers.tradier",        "TradierMarket"),
+        ("app.services.providers.tradier",        "TradierClient"),
+    ]:
+        try:
+            _klass = getattr(_import_module(mod), cls)
+            # If the name was TradierClient, alias it for route code expecting TradierMarket
+            TradierMarket = _klass  # type: ignore
+            # Also expose TradierClient for any other code that expects it
+            if 'TradierClient' not in globals():  # type: ignore
+                TradierClient = _klass  # type: ignore
+            break
+        except Exception as e:
+            _trad_errs.append(f"{mod}.{cls} -> {type(e).__name__}: {e}")
+            TradierMarket = globals().get('TradierMarket', None)  # type: ignore
+
+    if 'TradierClient' not in globals():  # If neither existed, keep None for clarity
+        try:
+            TradierClient = TradierMarket  # type: ignore
+        except Exception:
+            TradierClient = None  # type: ignore
+
+    if TradierMarket is None:  # type: ignore
+        _PROVIDERS_IMPORT_ERR = (_PROVIDERS_IMPORT_ERR + " | " if 'PROVIDERS_IMPORT_ERR' in globals() else "") + "; ".join(_trad_errs)
+
+# ---- End provider compatibility ----
+
+
 # Providers (robust dynamic import so we don't break header again)
 from importlib import import_module as _import_module
 try:

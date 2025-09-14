@@ -6,7 +6,7 @@ import re as _re
 
 from app.services.providers.polygon_market import PolygonMarket
 from app.services.providers.tradier import TradierMarket, TradierAuthError, TradierHTTPError
-from app.services.indicators import
+from app.services.indicators import (ema, sma, rsi, macd, atr14, session_vwap_and_sigma, pivots_classic, rvol_5min)
 from app.engine.regime import analyze as regime_analyze
 from app.engine.options_scoring import (
     tradeability_score, ScoreWeights,

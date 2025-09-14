@@ -51,9 +51,9 @@ async def chart_proposal(
   <title>${SYM} – Proposal</title>
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
-    html, body { margin: 0; padding: 0; background: ${BG}; }
-    #wrap { width: ${WIDTH}px; height: ${HEIGHT}px; margin: 0 auto; }
-    #chart { width: 100%; height: 100%; }
+    html, body { margin: 0; padding: 0; background: ${BG}; height: 100%; width: 100%; }
+    #wrap { width: min(100vw, ${WIDTH}px); height: min(100vh, ${HEIGHT}px); margin: 0 auto; }
+    #chart { width: 100%; height: 100%; display: block; }
     .legend { position:absolute; left:8px; top:8px; color:${TEXT}; font: 12px/1.4 -apple-system,Segoe UI,Arial; background: transparent; }
     .badges { position:absolute; right:8px; top:8px; display:flex; gap:6px; flex-wrap:wrap; max-width:50%; }
     .badge { padding:2px 6px; border-radius:10px; font-size:11px; border:1px solid ${BORDER}; color:${TEXT}; background:${BADGE_BG}; }
@@ -79,6 +79,12 @@ async def chart_proposal(
     const anchor = '${ANCHOR}'.toLowerCase() === 'last' ? 'last' : 'entry';
     const hit1 = ${HIT1};
     const hit2 = ${HIT2};
+    const prettyOverlays = () => '${OVERLAYS}'.split(',').map(s => s.trim().toLowerCase()).map(s => {
+      if (s === 'vwap') return 'VWAP';
+      if (s.startsWith('ema')) return s.toUpperCase();
+      if (s === 'pivots' || s === 'levels') return 'Pivots';
+      return s;
+    }).join(' + ');
 
     function ema(values, period) {
       const k = 2/(period+1);
@@ -142,6 +148,8 @@ async def chart_proposal(
       }
       const data = bars.map(b => ({ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }));
       candleSeries.setData(data);
+      // Fit content to visible range for readability
+      try { chart.timeScale().fitContent(); } catch (e) {}
 
       if (want('vwap')) {
         const vwapSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 2 });
@@ -168,10 +176,10 @@ async def chart_proposal(
         if (value===null) return;
         candleSeries.createPriceLine({ price: value, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title });
       }
-      priceLine(entry, 'ENTRY', '#16a34a');
-      priceLine(sl, 'STOP', '#ef4444');
-      priceLine(tp1, 'TP1', '#60a5fa');
-      priceLine(tp2, 'TP2', '#60a5fa');
+      priceLine(entry, 'Entry', '#16a34a');
+      priceLine(sl, 'Stop Loss', '#ef4444');
+      priceLine(tp1, 'Target 1', '#60a5fa');
+      priceLine(tp2, 'Target 2', '#60a5fa');
 
       if (entryTime) {
         const marker = {
@@ -193,10 +201,10 @@ async def chart_proposal(
         if (base !== null && base !== undefined) {
           const hi = Number(base) + Number(emAbs);
           const lo = Number(base) - Number(emAbs);
-          priceLine(hi, 'EM+', '#7c3aed');
-          priceLine(lo, 'EM-', '#7c3aed');
-        }
+          priceLine(hi, 'EM Upper', '#7c3aed');
+          priceLine(lo, 'EM Lower', '#7c3aed');
       }
+    }
 
       if (want('pivots') || want('levels')) {
         try {
@@ -230,6 +238,8 @@ async def chart_proposal(
       const h1 = pctFmt(hit1); const h2 = pctFmt(hit2);
       if (h1 !== null) addBadge('P(TP1) ~ ' + h1.toFixed(0) + '%');
       if (h2 !== null) addBadge('P(TP2) ~ ' + h2.toFixed(0) + '%');
+      // Make legend text more intuitive
+      try { document.getElementById('legend').textContent = '${SYM} ${INTERVAL} • ' + prettyOverlays(); } catch (e) {}
     }
     main();
   </script>

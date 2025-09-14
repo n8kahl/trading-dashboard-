@@ -60,7 +60,7 @@ async def assistant_exec(payload: Dict[str, Any]):
         out: Dict[str, Any] = {}
         errs: Dict[str, Any] = {}
 
-        # PRICE (daily fallback)
+        # PRICE
         last_price = None; last_t = None
         if "price" in include:
             try:
@@ -70,7 +70,7 @@ async def assistant_exec(payload: Dict[str, Any]):
                 errs["price.last_trade"] = f"{type(e).__name__}: {e}"
         out["price"] = {"last": last_price, "t": last_t}
 
-        # HISTORY FETCH (1m → fallback 5m; daily always)
+        # HISTORY: fetch 1m → 5m fallback; daily always
         minute_bars = []; fivem_bars = []; daily_bars = []
         if any(k in include for k in ("history","indicators","levels","micro")):
             if bars_kind in ("1m","5m"):
@@ -88,13 +88,13 @@ async def assistant_exec(payload: Dict[str, Any]):
             except Exception as e:
                 errs["history.1D"] = f"{type(e).__name__}: {e}"
 
-        # fallback price from daily
+        # price fallback from daily
         if last_price is None and daily_bars:
             out["price"]["last"] = daily_bars[-1].get("c")
             out["price"]["t"] = daily_bars[-1].get("t")
             errs.setdefault("price.fallback", "used last daily close")
 
-        # INDICATORS (EMA1/5/9/20 from minute if present; else 5m; else daily)
+        # INDICATORS
         ind: Dict[str, Any] = {"ema1": None, "ema5": None, "ema9": None, "ema20": None, "ema50": None, "sma200": None, "atr14": None}
         try:
             if minute_bars:
@@ -111,7 +111,6 @@ async def assistant_exec(payload: Dict[str, Any]):
                 ind["ema9"]  = ema(closes, 9)
                 ind["ema20"] = ema(closes, 20)
             elif closes_d:
-                # last-resort from daily
                 ind["ema1"]  = ema(closes_d, 1)
                 ind["ema5"]  = ema(closes_d, 5)
                 ind["ema9"]  = ema(closes_d, 9)
@@ -125,21 +124,33 @@ async def assistant_exec(payload: Dict[str, Any]):
             errs["indicators"] = f"{type(e).__name__}: {e}"
         out["indicators"] = ind
 
-        # LEVELS: VWAP from 1m; fallback to 5m aggregates for VWAP±σ; HOD/LOD from whichever we have
+        # LEVELS — VWAP from 1m → 5m → daily proxy; include debug
         levels: Dict[str, Any] = {}
         try:
-            bars_for_vwap = minute_bars if minute_bars else fivem_bars
+            source, bars_for_vwap = None, None
+            if minute_bars:
+                source, bars_for_vwap = "1m", minute_bars
+            elif fivem_bars:
+                source, bars_for_vwap = "5m", fivem_bars
+            elif daily_bars:
+                source, bars_for_vwap = "1D", daily_bars  # coarse proxy
+
             vwap, sigma = session_vwap_and_sigma(bars_for_vwap) if bars_for_vwap else (None, None)
             levels["vwap_session"] = vwap
             if vwap is not None and sigma is not None:
                 levels["vwap_bands"] = {"minus1": round(vwap - sigma, 4), "plus1": round(vwap + sigma, 4)}
-                levels["basis"] = "session VWAP from aggregate bars; σ=std(tp), tp=(H+L+C)/3"
+            if source:
+                levels.setdefault("basis", "VWAP from available bars; σ on tp").strip()
+                levels["debug"] = {"source": source, "bar_count": len(bars_for_vwap)}
+
+            # HOD/LOD from whichever intraday series we have
             use_bars = minute_bars if minute_bars else fivem_bars
             if use_bars:
                 highs = [b.get("h") for b in use_bars if b.get("h") is not None]
                 lows  = [b.get("l") for b in use_bars if b.get("l") is not None]
                 if highs: levels["hod"] = round(max(highs), 4)
                 if lows:  levels["lod"] = round(min(lows), 4)
+
             if len(daily_bars) >= 2:
                 prev = daily_bars[-2]
                 prev_day = {"o": prev["o"], "h": prev["h"], "l": prev["l"], "c": prev["c"]}
@@ -162,7 +173,7 @@ async def assistant_exec(payload: Dict[str, Any]):
             errs["micro"] = f"{type(e).__name__}: {e}"
             out["micro"] = {}
 
-        # HISTORY payload (respect requested bars; if 5m requested but we only have 5m, send it)
+        # HISTORY payload
         if "history" in include:
             try:
                 if bars_kind == "5m":
@@ -170,7 +181,6 @@ async def assistant_exec(payload: Dict[str, Any]):
                         items = [[b["t"],b["o"],b["h"],b["l"],b["c"],b["v"]] for b in fivem_bars][-90:]
                         out["history"] = {"bars": "5m", "items": items}
                     elif minute_bars:
-                        # downsample from 1m if that’s what we have
                         items=[]; bucket=[]
                         for b in minute_bars:
                             bucket.append(b)

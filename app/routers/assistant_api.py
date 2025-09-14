@@ -548,7 +548,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                 except Exception as e:
                     errs[f"{sym}.options.tradier_fallback"] = f"{type(e).__name__}: {e}"
 
-        return picks, em_abs, em_rel
+        return picks, em_abs, em_rel, ctx
 
     for sym in symbols:
         out: Dict[str, Any] = {}

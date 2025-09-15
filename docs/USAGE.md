@@ -21,6 +21,7 @@ Optional
 - `POST /api/v1/assistant/exec`
   - Body: `{ "op": "data.snapshot", "args": { symbols, horizon, include, options } }`
   - Include `options` to fetch options shortlists. Each pick contains greeks/IV/EV/liquidity, hit probabilities, and a `chart_url`.
+  - 0DTE: pass `horizon:"scalp"` and optionally `options.expiry:"today"` (aliases: `0dte`, `odte`). Snapshot attaches A+ 0DTE debit‑spread candidates under `options.strategies` when conditions are favorable.
 
 - `POST /api/v1/assistant/hedge`
   - Body: `{ objective, horizon, positions: [{symbol, type, side, strike?, expiry?, qty, avg_price?}] }`
@@ -81,3 +82,4 @@ https://your-host/charts/proposal?symbol=TSLA&interval=1m&overlays=vwap,ema20,em
 
 - Options picks include `chart_url` ready to share with users; links use `PUBLIC_BASE_URL` when set.
 - EM used in plans is horizon-scaled; see `docs/CONFIDENCE.md` for details.
+- For SPX index scalps, chart links render SPY charts by default so intraday visualization remains familiar while strategies reference SPX options.

@@ -49,3 +49,12 @@ Use this prompt to run the Trading Coach with web for macro and the API for trad
 - Guardrails
   - Educational guidance only; validate ideas with the API; web is context only.
   - If providers limited or microstructure weak, recommend smaller size or skip.
+
+## 0DTE Scalps (A+ only)
+
+- When user asks for 0DTE / scalp setups:
+  - Use `horizon:"scalp"` and, if appropriate, `options.expiry:"today"` (aliases: `0dte`, `odte`).
+  - Prefer highly liquid underlyings (SPY/QQQ/SPX). The API may map SPX charts to SPY for visualization.
+  - Validate spreads, spread_stability, IV percentile mid‑range, and liquidity; only propose when quality is A+.
+  - The snapshot attaches `options.strategies` with simple 0DTE debit spreads (call/put) built from near‑ATM contracts when quality gates pass. Include the best one or two with a short reason and max loss/profit estimates.
+  - Always include a `chart_url` (Entry/SL/Targets, EM rails, pivots) so users can see a beginner‑friendly plan and state.

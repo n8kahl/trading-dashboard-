@@ -215,8 +215,9 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
             if hits.get("tp2") is not None:
                 plan.append(f"P(TP2) ≈ {int((hits['tp2'] if hits['tp2']<=1 else hits['tp2']/100)*100)}%")
 
+        chart_sym = 'SPY' if _is_spx(sym) else sym
         q = {
-            "symbol": sym,
+            "symbol": chart_sym,
             "interval": "1m",
             "lookback": 390,
             "overlays": "vwap,ema20,ema50,pivots",
@@ -258,7 +259,15 @@ def _normalize_expiry(raw: Any, hz: str) -> str:
         return _auto_expiry(hz)
     if isinstance(raw, str) and raw.strip().lower() == "auto":
         return _auto_expiry(hz)
+    if isinstance(raw, str) and raw.strip().lower() in ("today", "0dte", "odte"):
+        from datetime import date
+        return str(date.today())
     return str(raw)
+
+def _is_spx(sym: str) -> bool:
+    s = (sym or "").upper()
+    return s in ("SPX", "SPXW", "^SPX")
+
 
 # ---------- API Schemas ----------
 class ExecRequest(BaseModel):
@@ -656,6 +665,85 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
 
         return picks, em_abs, em_rel, ctx
 
+    def _odte_strategies(sym: str, picks: List[Dict[str, Any]], em_abs: Optional[float], expiry: str) -> List[Dict[str, Any]]:
+        """Compose simple 0DTE debit spread scalps from high-quality picks.
+        - Buy near-ATM (~0.5Δ) call/put and sell the next strike OTM to reduce cost.
+        - Only include when spreads are tight and liquidity is healthy.
+        """
+        if not picks or em_abs is None:
+            return []
+        def mid(x):
+            b, a = x.get("bid"), x.get("ask")
+            if b is None or a is None or a <= 0:
+                return None
+            return (b + a)/2.0
+        out: List[Dict[str, Any]] = []
+        def select_leg(kind: str):
+            # filter by type and iv/liquidity/spread
+            side = [p for p in picks if p.get("type") == kind]
+            best = []
+            for p in side:
+                sp = p.get("spread_pct")
+                if sp is None or sp > 8.0:
+                    continue
+                ivp = p.get("iv_percentile")
+                if ivp is not None and (ivp < 10 or ivp > 90):
+                    continue
+                if (p.get("oi") or 0) < 200 and (p.get("volume") or 0) < 200:
+                    continue
+                d = p.get("delta")
+                try:
+                    if d is None:
+                        continue
+                    if kind == "call":
+                        score = 1.0 - abs(abs(float(d)) - 0.5)
+                    else:
+                        score = 1.0 - abs(abs(float(d)) - 0.5)
+                except Exception:
+                    score = 0.0
+                best.append((score, p))
+            best.sort(key=lambda x: x[0], reverse=True)
+            return best[0][1] if best else None
+        def next_strike(kind: str, base_strike: float):
+            # Choose nearest OTM strike from picks
+            cands = [p for p in picks if p.get("type") == kind and isinstance(p.get("strike"),(int,float))]
+            if kind == "call":
+                cands = [p for p in cands if p["strike"] > base_strike]
+                cands.sort(key=lambda p: p["strike"])  # nearest above
+            else:
+                cands = [p for p in cands if p["strike"] < base_strike]
+                cands.sort(key=lambda p: p["strike"], reverse=True)  # nearest below
+            return cands[0] if cands else None
+
+        for kind in ("call", "put"):
+            buy = select_leg(kind)
+            if not buy:
+                continue
+            sell = next_strike(kind, float(buy.get("strike") or 0))
+            if not sell:
+                continue
+            buy_mid = mid(buy); sell_mid = mid(sell)
+            if buy_mid is None or sell_mid is None:
+                continue
+            width = abs(float(sell["strike"]) - float(buy["strike"]))
+            debit = max(0.0, buy_mid - sell_mid)
+            max_profit = max(0.0, width - debit)
+            strat = {
+                "name": f"0DTE {kind.capitalize()} Debit Spread",
+                "underlying": sym,
+                "expiry": expiry,
+                "legs": [
+                    {"action": "BUY",  "type": kind, "strike": buy.get("strike"),  "symbol": buy.get("symbol")},
+                    {"action": "SELL", "type": kind, "strike": sell.get("strike"), "symbol": sell.get("symbol")},
+                ],
+                "est_entry": round(debit, 2),
+                "est_width": round(width, 2),
+                "max_loss_est": round(debit, 2),
+                "max_profit_est": round(max_profit, 2),
+            }
+            out.append(strat)
+        return out
+
     for sym in symbols:
         out: Dict[str, Any] = {}
         lp = await last_price(sym)
@@ -665,6 +753,29 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
         picks, em_abs, em_rel, opt_ctx = await options_top(sym, lp)
         if picks:
             out.setdefault("options", {})["top"] = picks
+            # 0DTE strategies for scalp horizon (A+ only)
+            try:
+                if horizon == "scalp":
+                    # Build strategies using normalized expiry 'today' if user asked; else use detected expiry from options request or context
+                    # Try to infer expiry from first pick symbol if available
+                    first_exp = None
+                    try:
+                        for p in picks:
+                            if p.get("symbol"):
+                                # OCC parse exists in providers; quick parse here for YYMMDD
+                                import re
+                                m = re.search(r"\d{6}", p["symbol"]) if isinstance(p["symbol"], str) else None
+                                if m:
+                                    s = m.group(0)
+                                    first_exp = f"20{s[0:2]}-{s[2:4]}-{s[4:6]}"; break
+                    except Exception:
+                        first_exp = None
+                    ex = first_exp or _normalize_expiry("today", horizon)
+                    strats = _odte_strategies(sym, picks, em_abs, ex)
+                    if strats:
+                        out.setdefault("options", {})["strategies"] = strats
+            except Exception:
+                pass
         providers_info = {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}
         if em_abs is not None:
             out.setdefault("context", {})["expected_move"] = {"abs": em_abs, "rel": em_rel}

@@ -21,7 +21,17 @@ Optional
 - `POST /api/v1/assistant/exec`
   - Body: `{ "op": "data.snapshot", "args": { symbols, horizon, include, options } }`
   - Include `options` to fetch options shortlists. Each pick contains greeks/IV/EV/liquidity, hit probabilities, and a `chart_url`.
-  - 0DTE: pass `horizon:"scalp"` and optionally `options.expiry:"today"` (aliases: `0dte`, `odte`). Snapshot attaches A+ 0DTE debit‑spread candidates under `options.strategies` when conditions are favorable.
+  - 0DTE: pass `horizon:"scalp"` and optionally `options.expiry:"today"` (aliases: `0dte`, `odte`). Snapshot attaches A+ 0DTE debit-spread candidates under `options.strategies` when conditions are favorable.
+  - Convenience: `options.odte: true` forces same-day expiry and uses tighter defaults (spread cap ~8%).
+
+- `POST /api/v1/trades`, `GET /api/v1/trades`
+  - Persist executions with symbol, side, qty, price, optional PnL/tags/context. List endpoint supports `symbol`, `since`, `limit` filters.
+
+- `POST /api/v1/features`, `GET /api/v1/features`
+  - Store derived feature payloads (JSON) keyed by symbol + horizon. List endpoint supports symbol/horizon filters.
+
+- `POST /api/v1/logs`, `GET /api/v1/logs`
+  - Structured logging sink. Post `level`, `source`, `message`, optional payload. Errors/criticals trigger Discord alerts when `DISCORD_WEBHOOK_URL` is configured.
 
 - `POST /api/v1/assistant/hedge`
   - Body: `{ objective, horizon, positions: [{symbol, type, side, strike?, expiry?, qty, avg_price?}] }`
@@ -69,6 +79,20 @@ curl -s -X POST $BASE/api/v1/assistant/hedge \
 Chart (TSLA, intraday plan):
 ```
 https://your-host/charts/proposal?symbol=TSLA&interval=1m&overlays=vwap,ema20,ema50,pivots&entry=395.9&sl=393.3&tp1=398.6&tp2=401.2&direction=long&em_abs=2.5&hit_tp1=0.68&hit_tp2=0.42
+```
+
+Record a filled trade (optional Discord ping):
+```
+curl -s -X POST $BASE/api/v1/trades \
+ -H 'Content-Type: application/json' \
+ -d '{"symbol":"SPY","side":"buy","quantity":2,"avg_price":445.12,"pnl":15.8,"tags":["opening drive"],"context":{"strategy":"scalp","horizon":"intraday"}}'
+```
+
+Push a structured error log (fires Discord when level=error|critical):
+```
+curl -s -X POST $BASE/api/v1/logs \
+ -H 'Content-Type: application/json' \
+ -d '{"level":"error","source":"nbbo_sampler","message":"Polygon timeout","payload":{"symbol":"TSLA"}}'
 ```
 
 ## Troubleshooting

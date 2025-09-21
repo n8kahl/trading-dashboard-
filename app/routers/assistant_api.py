@@ -216,6 +216,8 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
                 plan.append(f"P(TP2) ≈ {int((hits['tp2'] if hits['tp2']<=1 else hits['tp2']/100)*100)}%")
 
         chart_sym = 'SPY' if _is_spx(sym) else sym
+        # Determine state label for chart
+        state_label = "Scalp (0DTE)" if horizon == "scalp" else ("Intraday" if horizon == "intraday" else horizon.title())
         q = {
             "symbol": chart_sym,
             "interval": "1m",
@@ -232,6 +234,7 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
             "anchor": "entry",
             "hit_tp1": hits.get("tp1"),
             "hit_tp2": hits.get("tp2"),
+            "state": state_label,
             "plan": " | ".join(plan),
             "theme": "dark",
         }
@@ -330,10 +333,11 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if "options" in include and poly:
             try:
+                odte_flag = bool(options_req.get("odte"))
                 topK = int(options_req.get("topK", 6))
-                maxSpreadPct = float(options_req.get("maxSpreadPct", 12))
+                maxSpreadPct = float(options_req.get("maxSpreadPct", 8 if odte_flag else 12))
                 greeks = bool(options_req.get("greeks", True))
-                expiry = _normalize_expiry(options_req.get("expiry", "auto"), horizon)
+                expiry = _normalize_expiry(options_req.get("expiry", ("today" if odte_flag else "auto")), horizon)
                 req = {"topK": topK, "maxSpreadPct": maxSpreadPct, "greeks": greeks, "expiry": expiry}
 
                 # Use Polygon snapshot; provider now supports snapshot_chain alias

@@ -26,6 +26,7 @@ async def chart_proposal(
     hit_tp2: float | None = None,
     theme: str = Query("dark"),
     plan: str = Query(""),
+    state: str = Query(""),
     width: int = 1200,
     height: int = 650,
 ) -> Response:
@@ -56,6 +57,7 @@ async def chart_proposal(
     #wrap { width: min(100vw, ${WIDTH}px); height: min(100vh, ${HEIGHT}px); margin: 0 auto; }
     #chart { width: 100%; height: 100%; display: block; }
     .legend { position:absolute; left:8px; top:8px; color:${TEXT}; font: 12px/1.4 -apple-system,Segoe UI,Arial; background: transparent; }
+    .symbol { position:absolute; left:8px; top:26px; color:${TEXT}; font: 14px/1.4 -apple-system,Segoe UI,Arial; opacity: 0.9; }
     .panel { position:absolute; left:8px; bottom:8px; max-width:min(460px, 95vw); padding:10px 12px; border-radius:8px; background:${BADGE_BG}; color:${TEXT}; border:1px solid ${BORDER}; font: 12px/1.5 -apple-system,Segoe UI,Arial; }
     .panel h4 { margin: 0 0 6px 0; font-size: 13px; }
     .panel ul { margin: 6px 0 0; padding-left: 18px; }
@@ -68,11 +70,12 @@ async def chart_proposal(
   </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="chart"></div>
-    <div class="legend" id="legend">${SYM} ${INTERVAL} · overlays: ${OVERLAYS}</div>
-    <div class="badges" id="badges"></div>
-    <div class="tools" id="tools">
+    <div id="wrap">
+      <div id="chart"></div>
+      <div class="legend" id="legend">${SYM} ${INTERVAL} · overlays: ${OVERLAYS}</div>
+      <div class="symbol" id="symbolTag">${SYM}</div>
+      <div class="badges" id="badges"></div>
+      <div class="tools" id="tools">
       <label for="selInterval">Timeframe</label>
       <select id="selInterval">
         <option value="1m">1m</option>
@@ -256,6 +259,7 @@ async def chart_proposal(
       }
       if (emAbs !== null && !isNaN(emAbs)) addBadge('EM ± ' + Number(emAbs).toFixed(2));
       if (emRel !== null && !isNaN(emRel)) addBadge('EM ' + (Number(emRel)*100).toFixed(1) + '%');
+      if ('${STATE}'.length) addBadge('${STATE}');
       const pctFmt = (x) => (x==null || isNaN(x)) ? null : (x > 1.5 ? Number(x) : Number(x)*100);
       const h1 = pctFmt(hit1); const h2 = pctFmt(hit2);
       if (h1 !== null) addBadge('P(TP1) ~ ' + h1.toFixed(0) + '%');

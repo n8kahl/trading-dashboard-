@@ -2,6 +2,41 @@
 
 This document tracks code and docs changes so work can be resumed easily in a new session.
 
+## 2025-09-16
+
+- Data: Added async SQLAlchemy models (`trades`, `features`, `logs`) with automatic table creation on startup. Falls back to local SQLite when `DATABASE_URL` is absent.
+- API: New storage router exposes `POST/GET /api/v1/trades`, `POST/GET /api/v1/features`, `POST/GET /api/v1/logs` with filtering and envelope responses.
+- Alerts: Discord webhook notifier fires on trade inserts and error/critical logs (`DISCORD_WEBHOOK_URL`). Added env template entries and documented usage in README/USAGE.
+- Ops: Docker env template now ships a ready Postgres `DATABASE_URL`; deployment guide updated with webhook + DB hints.
+
+## 2025-09-15
+
+- DevOps: Docker + Compose stack
+  - Added `Dockerfile` to containerize FastAPI app.
+  - Added `docker-compose.yml` with services: `api`, `db` (TimescaleDB), `prometheus`, `grafana`.
+  - Added server env template `.env.server.example`.
+- Observability: Prometheus + Grafana
+  - Instrumented FastAPI with Prometheus metrics via `prometheus-fastapi-instrumentator` (exposes `/metrics`).
+  - Added `ops/prometheus/prometheus.yml` to scrape `api:8000/metrics`.
+  - Provisioned Grafana Prometheus datasource (`ops/grafana/provisioning/datasources/datasource.yml`).
+- Docs
+  - New `docs/DEPLOY_WITH_COMPOSE.md` for step-by-step bring-up on a VM.
+  - `README.md` updated previously with solo-operator guidance; retained original section.
+
+### User direction update (Option B — VM)
+
+- The user selected Option B (one-VM deploy on Ubuntu).
+- Provided copy/paste steps for VM provisioning, Docker install, env setup, compose bring-up, and verification.
+- Next decision: add reverse proxy + HTTPS, or proceed with DB schema + endpoints and Discord alerts.
+
+### AutoTrader (separate repo; local scaffold here)
+
+- Added standalone AutoTrader skeleton under `autotrader/` (gitignored in this repo): API + worker + Docker/Compose.
+- Implemented order management endpoints:
+  - `GET /api/v1/orders`, `GET /api/v1/orders/{id}`, `POST /api/v1/orders/{id}/cancel`
+  - `GET /api/v1/positions`, `GET /api/v1/account/balances`
+- Verified sandbox order placement (live) and dry-run behavior.
+
 ## 2025-09-14
 
 - Fix: Polygon options snapshot integration

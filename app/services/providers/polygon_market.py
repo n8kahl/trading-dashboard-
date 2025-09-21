@@ -1,8 +1,14 @@
 from __future__ import annotations
-import os, time, httpx, re, asyncio
+import os, time, httpx, re, asyncio, logging
 from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from datetime import datetime, timedelta, timezone
+
+from app.services.metrics import (
+    polygon_request_latency,
+    polygon_request_retry_total,
+    polygon_request_total,
+)
 
 API_KEY = os.getenv("POLYGON_API_KEY", "")
 BASE = "https://api.polygon.io"
@@ -11,6 +17,8 @@ try:
     _poly_rl = get_polygon_limiter()
 except Exception:
     _poly_rl = None
+
+logger = logging.getLogger("app.providers.polygon")
 
 # ---------- tiny cache to avoid spamming Polygon ----------
 _CACHE: Dict[str, Dict[str, Any]] = {}
@@ -65,23 +73,85 @@ class PolygonMarket:
             cached = _cache_get(key, cache_ttl)
             if cached is not None:
                 return cached
+
+        path = urlparse(url).path or url
         async with httpx.AsyncClient(timeout=self.timeout) as c:
             backoff = 0.25
-            for _ in range(5):
+            last_response: Optional[httpx.Response] = None
+            last_error: Optional[Exception] = None
+            for attempt in range(1, 6):
                 if _poly_rl is not None:
                     await _poly_rl.wait(1.0)
-                r = await c.get(url, params=_p(params))
-                if r.status_code in (429,) or 500 <= r.status_code < 600:
+
+                start = time.perf_counter()
+                try:
+                    r = await c.get(url, params=_p(params))
+                except httpx.TimeoutException as exc:
+                    duration = time.perf_counter() - start
+                    polygon_request_latency.labels(path=path).observe(duration)
+                    polygon_request_total.labels(path=path, status="timeout").inc()
+                    polygon_request_retry_total.labels(path=path, reason="timeout").inc()
+                    logger.warning("Polygon timeout on %s (attempt %s)", path, attempt)
+                    last_error = exc
                     await asyncio.sleep(backoff)
                     backoff = min(2.0, backoff * 2)
                     continue
-                r.raise_for_status()
+                except httpx.HTTPError as exc:
+                    duration = time.perf_counter() - start
+                    polygon_request_latency.labels(path=path).observe(duration)
+                    polygon_request_total.labels(path=path, status="http_error").inc()
+                    polygon_request_retry_total.labels(path=path, reason=exc.__class__.__name__).inc()
+                    logger.warning("Polygon HTTP error on %s (attempt %s): %s", path, attempt, exc)
+                    last_error = exc
+                    await asyncio.sleep(backoff)
+                    backoff = min(2.0, backoff * 2)
+                    continue
+
+                duration = time.perf_counter() - start
+                status = r.status_code
+                polygon_request_latency.labels(path=path).observe(duration)
+                polygon_request_total.labels(path=path, status=str(status)).inc()
+                last_response = r
+
+                if status == 429:
+                    polygon_request_retry_total.labels(path=path, reason="429").inc()
+                    logger.warning("Polygon 429 on %s (attempt %s)", path, attempt)
+                    await asyncio.sleep(backoff)
+                    backoff = min(2.0, backoff * 2)
+                    continue
+
+                if 500 <= status < 600:
+                    polygon_request_retry_total.labels(path=path, reason="5xx").inc()
+                    logger.warning("Polygon %s on %s (attempt %s)", status, path, attempt)
+                    await asyncio.sleep(backoff)
+                    backoff = min(2.0, backoff * 2)
+                    continue
+
+                try:
+                    r.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    logger.error("Polygon HTTP error %s on %s", status, path, exc_info=exc)
+                    last_error = exc
+                    raise
+
                 j = r.json() or {}
                 if cache_ttl:
                     _cache_put(key, j)
                 return j
-            r.raise_for_status()
-            return r.json() or {}
+
+        if last_response is not None:
+            try:
+                last_response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.error("Polygon request failed after retries for %s", path, exc_info=exc)
+                raise
+            return last_response.json() or {}
+
+        if last_error is not None:
+            logger.error("Polygon request errored after retries for %s: %s", path, last_error)
+            raise last_error
+
+        raise RuntimeError(f"Polygon request failed without response for {path}")
 
     # ---------- Prices ----------
     async def last_trade(self, symbol: str) -> Dict[str, Any]:

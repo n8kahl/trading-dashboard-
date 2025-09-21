@@ -20,6 +20,10 @@ except Exception:
 
 logger = logging.getLogger("app.providers.polygon")
 
+
+class PermissionDeniedError(RuntimeError):
+    """Raised when Polygon denies access due to key permissions or plan limits."""
+
 # ---------- tiny cache to avoid spamming Polygon ----------
 _CACHE: Dict[str, Dict[str, Any]] = {}
 def _cache_get(key: str, ttl: int) -> Optional[Dict[str, Any]]:
@@ -112,6 +116,14 @@ class PolygonMarket:
                 polygon_request_latency.labels(path=path).observe(duration)
                 polygon_request_total.labels(path=path, status=str(status)).inc()
                 last_response = r
+
+                if status in (401, 402, 403):
+                    logger.error(
+                        "Polygon %s on %s — check API key permissions or plan tier",
+                        status,
+                        path,
+                    )
+                    raise PermissionDeniedError(f"Polygon returned {status} for {path}")
 
                 if status == 429:
                     polygon_request_retry_total.labels(path=path, reason="429").inc()

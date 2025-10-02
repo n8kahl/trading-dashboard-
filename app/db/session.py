@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, AsyncGenerator, Dict, Tuple
+import ssl
+from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -10,16 +11,56 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from .models import Base
 
 
-def _sslmode_to_asyncpg(value: str | None) -> Tuple[bool | None, bool]:
-    if not value:
-        return None, False
-    mode = value.strip().lower()
-    if mode in {"require", "verify-full", "verify-ca"}:
-        return True, True
-    if mode in {"disable"}:
-        return False, True
-    # allow/prefer fall back to default behaviour (no explicit ssl arg)
-    return None, False
+def _load_cert_chain(ctx: ssl.SSLContext, cert_path: Optional[str], key_path: Optional[str]) -> None:
+    if cert_path:
+        ctx.load_cert_chain(certfile=cert_path, keyfile=key_path or None)
+
+
+def _build_ssl_connect_args(mode: Optional[str], params: Dict[str, Optional[str]]) -> Dict[str, Any]:
+    mode_norm = (mode or "").strip().lower()
+    cert_path = params.get("sslcert")
+    key_path = params.get("sslkey")
+    root_path = params.get("sslrootcert")
+
+    def _create_default_context() -> ssl.SSLContext:
+        if root_path:
+            return ssl.create_default_context(cafile=root_path)
+        return ssl.create_default_context()
+
+    if mode_norm == "disable":
+        return {"ssl": False}
+
+    if mode_norm in ("", "allow", "prefer") and not (cert_path or key_path or root_path):
+        return {}
+
+    ctx: Optional[ssl.SSLContext] = None
+
+    if mode_norm == "require":
+        ctx = _create_default_context()
+        # Mimic libpq require semantics (no verification by default)
+        if not root_path:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+    elif mode_norm == "verify-ca":
+        ctx = _create_default_context()
+        ctx.check_hostname = False
+    elif mode_norm == "verify-full":
+        ctx = _create_default_context()
+        ctx.check_hostname = True
+    else:
+        # Unknown or unspecified mode but custom certs provided -> use default context without hostname checks
+        if cert_path or key_path or root_path:
+            ctx = _create_default_context()
+            ctx.check_hostname = False
+        elif mode_norm in ("", "allow", "prefer"):
+            return {}
+
+    if ctx is not None:
+        _load_cert_chain(ctx, cert_path, key_path)
+        return {"ssl": ctx}
+
+    # Fallback: let asyncpg negotiate and just require TLS
+    return {"ssl": True}
 
 
 def _normalize_url(url: str) -> Tuple[str, Dict[str, Any]]:
@@ -36,17 +77,18 @@ def _normalize_url(url: str) -> Tuple[str, Dict[str, Any]]:
 
     query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
     filtered_pairs = []
+    ssl_params: Dict[str, Optional[str]] = {"sslmode": None, "sslrootcert": None, "sslcert": None, "sslkey": None}
     for key, val in query_pairs:
-        if key.lower() == "sslmode":
-            ssl_flag, should_set = _sslmode_to_asyncpg(val)
-            if should_set:
-                connect_args["ssl"] = ssl_flag
-            # drop sslmode from query either way
+        low = key.lower()
+        if low in ssl_params:
+            ssl_params[low] = val or None
             continue
         filtered_pairs.append((key, val))
 
     new_query = urlencode(filtered_pairs, doseq=True)
     normalized = urlunparse(parsed._replace(scheme=target_scheme, query=new_query))
+    ssl_args = _build_ssl_connect_args(ssl_params["sslmode"], ssl_params)
+    connect_args.update(ssl_args)
     return normalized, connect_args
 
 
@@ -63,11 +105,13 @@ def _database_config() -> Tuple[str, Dict[str, Any]]:
 
     if user and password:
         url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
-        sslmode = os.getenv("POSTGRES_SSLMODE")
-        connect_args: Dict[str, Any] = {}
-        ssl_flag, should_set = _sslmode_to_asyncpg(sslmode)
-        if should_set:
-            connect_args["ssl"] = ssl_flag
+        ssl_params = {
+            "sslmode": os.getenv("POSTGRES_SSLMODE"),
+            "sslrootcert": os.getenv("POSTGRES_SSLROOTCERT"),
+            "sslcert": os.getenv("POSTGRES_SSLCERT"),
+            "sslkey": os.getenv("POSTGRES_SSLKEY"),
+        }
+        connect_args = _build_ssl_connect_args(ssl_params["sslmode"], ssl_params)
         return url, connect_args
 
     # Local fallback for quick experiments

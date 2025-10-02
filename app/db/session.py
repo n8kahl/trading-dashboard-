@@ -8,10 +8,32 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from .models import Base
 
 
+def _coerce_async_driver(url: str) -> str:
+    """Ensure PostgreSQL URLs use the asyncpg driver."""
+
+    lowered = url.lower()
+
+    if lowered.startswith("postgresql+asyncpg://"):
+        return url
+    if lowered.startswith("sqlite"):
+        return url
+
+    if lowered.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url.split("://", 1)[1]
+    if lowered.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url.split("://", 1)[1]
+    if lowered.startswith("postgresql+psycopg://"):
+        return "postgresql+asyncpg://" + url.split("://", 1)[1]
+    if lowered.startswith("postgresql+psycopg2://"):
+        return "postgresql+asyncpg://" + url.split("://", 1)[1]
+
+    return url
+
+
 def _database_url() -> str:
     explicit = os.getenv("DATABASE_URL")
     if explicit:
-        return explicit
+        return _coerce_async_driver(explicit)
 
     user = os.getenv("POSTGRES_USER")
     password = os.getenv("POSTGRES_PASSWORD")

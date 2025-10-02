@@ -19,10 +19,14 @@ Optional
   - Returns available ops and provider flags.
 
 - `POST /api/v1/assistant/exec`
-  - Body: `{ "op": "data.snapshot", "args": { symbols, horizon, include, options } }`
-  - Include `options` to fetch options shortlists. Each pick contains greeks/IV/EV/liquidity, hit probabilities, and a `chart_url`.
-  - 0DTE: pass `horizon:"scalp"` and optionally `options.expiry:"today"` (aliases: `0dte`, `odte`). Snapshot attaches A+ 0DTE debit-spread candidates under `options.strategies` when conditions are favorable.
-  - Convenience: `options.odte: true` forces same-day expiry and uses tighter defaults (spread cap ~8%).
+  - Single action router for Chat-Data: body `{ "op": <name>, "args": { ... } }`.
+  - Primary ops: `diag.health`, `diag.providers`, `assistant.actions`, `market.overview`, `assistant.hedge`.
+    - `diag.*` ops report health/provider readiness.
+    - `assistant.actions` lists supported ops plus provider/import diagnostics.
+    - `market.overview` accepts `{ indices?: string[], sectors?: string[] }` and returns macro context.
+    - `assistant.hedge` accepts `{ objective, horizon?, constraints?, positions[] }` and returns hedge plans.
+  - Legacy op: `data.snapshot` (same payload as before) continues to return rich symbol snapshots with options picks, EM, risk flags, and strategy scaffolding.
+    - Include `options` to fetch shortlists (and optional 0DTE strategies). `options.odte: true` keeps expiry on today with tighter spread caps.
 
 - `POST /api/v1/trades`, `GET /api/v1/trades`
   - Persist executions with symbol, side, qty, price, optional PnL/tags/context. List endpoint supports `symbol`, `since`, `limit` filters.
@@ -62,18 +66,32 @@ Optional
 
 ## Example Requests
 
-Snapshot (SPY intraday with options):
+Diag health via single action:
+```
+curl -s -X POST $BASE/api/v1/assistant/exec \
+ -H 'Content-Type: application/json' \
+ -d '{"op":"diag.health","args":{}}'
+```
+
+Market overview (custom indices/sectors):
+```
+curl -s -X POST $BASE/api/v1/assistant/exec \
+ -H 'Content-Type: application/json' \
+ -d '{"op":"market.overview","args":{"indices":["SPY","QQQ"],"sectors":["XLK","XLV","XLF","XLE","XLI","XLY","XLP","XLU","XLRE","XLB"]}}'
+```
+
+Legacy snapshot (SPY intraday with options):
 ```
 curl -s -X POST $BASE/api/v1/assistant/exec \
  -H 'Content-Type: application/json' \
  -d '{"op":"data.snapshot","args":{"symbols":["SPY"],"horizon":"intraday","include":["options"],"options":{"expiry":"auto","topK":8,"maxSpreadPct":12,"greeks":true}}}'
 ```
 
-Hedge (cap a naked short + protective put for long stock):
+Hedge through the single action (cap a naked short + protective put):
 ```
-curl -s -X POST $BASE/api/v1/assistant/hedge \
+curl -s -X POST $BASE/api/v1/assistant/exec \
  -H 'Content-Type: application/json' \
- -d '{"objective":"cap_loss","horizon":"intraday","positions":[{"symbol":"AAPL","type":"call","side":"short","strike":210,"expiry":"2025-09-20","qty":1},{"symbol":"AAPL","type":"stock","side":"long","qty":100}]}'
+ -d '{"op":"assistant.hedge","args":{"objective":"cap_loss","horizon":"intraday","positions":[{"symbol":"AAPL","type":"call","side":"short","strike":210,"expiry":"2025-09-20","qty":1},{"symbol":"AAPL","type":"stock","side":"long","qty":100}]}}'
 ```
 
 Chart (TSLA, intraday plan):

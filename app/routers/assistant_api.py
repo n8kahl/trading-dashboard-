@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio, inspect, math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Literal
 from app.services.indicators import spread_stability as _spread_stability
 from app.services.iv_surface import get_iv_surface, percentile_rank as _pct_rank_surface
 from app.services.state_store import record_chain_aggregates
 from fastapi import APIRouter, Body, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
+
+from app.routers.diag import providers as diag_providers
+from app.routers.market import market_overview as market_overview_route
+from app.routers.hedge import HedgeRequest, hedge_plan
 
 router = APIRouter(prefix="/api/v1")
 
@@ -273,25 +277,131 @@ def _is_spx(sym: str) -> bool:
 
 
 # ---------- API Schemas ----------
+PRIMARY_OPS: Tuple[str, ...] = (
+    "diag.health",
+    "diag.providers",
+    "assistant.actions",
+    "market.overview",
+    "assistant.hedge",
+)
+
+LEGACY_OPS: Tuple[str, ...] = ("data.snapshot",)
+
+
 class ExecRequest(BaseModel):
-    op: str
-    args: Dict[str, Any] = {}
+    op: Literal[
+        "diag.health",
+        "diag.providers",
+        "assistant.actions",
+        "market.overview",
+        "assistant.hedge",
+        "data.snapshot",
+    ]
+    args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ArgsMarketOverview(BaseModel):
+    indices: Optional[List[str]] = None
+    sectors: Optional[List[str]] = None
+
+
+def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:
+    payload: Dict[str, Any] = {
+        "ok": False,
+        "error": {
+            "code": "BAD_REQUEST",
+            "message": message,
+        },
+    }
+    if details:
+        payload["error"]["details"] = details
+    return HTTPException(status_code=400, detail=payload)
+
 
 @router.get("/assistant/actions")
 async def assistant_actions() -> Dict[str, Any]:
-    return {"ok": True, "ops": ["data.snapshot", "assistant.hedge", "market.overview"], "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)}, "import_errors": _prov_err}
+    return {
+        "ok": True,
+        "ops": list(PRIMARY_OPS),
+        "legacy_ops": list(LEGACY_OPS),
+        "providers": {"polygon": bool(PolygonMarket), "tradier": bool(TradierMarket or TradierClient)},
+        "import_errors": _prov_err,
+    }
+
 
 @router.post("/assistant/exec")
 async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
-    try:
-        if payload.op != "data.snapshot":
-            raise HTTPException(status_code=400, detail=f"Unsupported op: {payload.op}")
-        result = await _handle_snapshot(payload.args)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    op = payload.op
+
+    if op == "diag.health":
+        return {"ok": True, "op": op, "data": {"status": "ok"}}
+
+    if op == "diag.providers":
+        providers = await diag_providers()
+        return {"ok": True, "op": op, "data": providers}
+
+    if op == "assistant.actions":
+        actions = await assistant_actions()
+        ok = bool(actions.get("ok", True))
+        data = {k: v for k, v in actions.items() if k != "ok"}
+        return {"ok": ok, "op": op, "data": data}
+
+    if op == "market.overview":
+        try:
+            args = ArgsMarketOverview.model_validate(payload.args or {})
+        except ValidationError as exc:
+            raise _bad_request(op, "Invalid args", {"errors": exc.errors()}) from exc
+        indices_list = args.indices or ["SPY", "QQQ"]
+        sectors_list = args.sectors or [
+            "XLK",
+            "XLV",
+            "XLF",
+            "XLE",
+            "XLI",
+            "XLY",
+            "XLP",
+            "XLU",
+            "XLRE",
+            "XLB",
+        ]
+        indices = ",".join(sorted({s.upper() for s in indices_list if s}))
+        sectors = ",".join(sorted({s.upper() for s in sectors_list if s}))
+        overview = await market_overview_route(indices=indices, sectors=sectors)
+        ok = bool(overview.get("ok", True))
+        data = {k: v for k, v in overview.items() if k != "ok"}
+        return {"ok": ok, "op": op, "data": data}
+
+    if op == "assistant.hedge":
+        try:
+            hedge_req = HedgeRequest.model_validate(payload.args or {})
+        except ValidationError as exc:
+            raise _bad_request(op, "Invalid args", {"errors": exc.errors()}) from exc
+        hedge_resp = await hedge_plan(hedge_req)
+        ok = bool(hedge_resp.get("ok", True))
+        data = {k: v for k, v in hedge_resp.items() if k != "ok"}
+        return {"ok": ok, "op": op, "data": data}
+
+    if op == "data.snapshot":
+        try:
+            result = await _handle_snapshot(payload.args or {})
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "ok": False,
+                    "error": {
+                        "code": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                },
+            ) from exc
+        ok = bool(result.get("ok", True))
+        data = {k: v for k, v in result.items() if k != "ok"}
+        return {"ok": ok, "op": op, "data": data}
+
+    raise _bad_request(op, f"Unknown op '{op}' or invalid args.")
 
 # ---------- Core handler ----------
 async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:

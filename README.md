@@ -181,14 +181,13 @@ Heartbeats are sent every `WS_PING_SEC` seconds; the connection manager drops un
 
 ### AI Coach (chat-data.com)
 
+- Single action: `POST /api/v1/assistant/exec` with body `{ "op": <name>, "args": { ... } }`.
+  - Primary ops exposed to Chat-Data: `diag.health`, `diag.providers`, `assistant.actions`, `market.overview`, `assistant.hedge`.
+  - Legacy support: `data.snapshot` remains available for rich symbol snapshots (options, EM, risk flags).
+  - `assistant.actions` returns the active op lists plus provider diagnostics for tool planning.
 - Backend route: `POST /api/v1/coach/chat`
   - Body: `{ messages: [{role, content}], stream?: false }`
-  - Uses an OpenAI-compatible API on chat-data.com.
-  - Advertises and executes tools from `/api/v1/assistant/actions` automatically.
-
-- Frontend page: `trading-dashboard/app/coach/page.tsx`
-  - Simple chat UI wired to the backend coach route.
-  - Keeps API key server-side.
+  - Uses an OpenAI-compatible API on chat-data.com and calls the single action above.
 
 Confidence: All ideas include a 0–100 confidence and a brief rationale using ATR, VWAP, EMA posture, order‑flow (RVOL/OBV/CVD approx), and liquidity, per `docs/CONFIDENCE.md`.
 

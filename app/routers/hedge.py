@@ -39,8 +39,12 @@ class Position(BaseModel):
     avg_price: Optional[float] = None
 
 class HedgeRequest(BaseModel):
-    objective: str = Field("cap_loss", description="cap_loss|neutralize_delta|hold_upside|collect_theta|reduce_vega")
-    horizon: str = Field("intraday")
+    objective: str = Field(
+        "cap_loss",
+        description="cap_loss|neutralize_delta|reduce_theta|protect_gap|custom|hold_upside|collect_theta|reduce_vega",
+    )
+    horizon: str = Field("intraday", description="intraday|swing|weekly|monthly")
+    constraints: Optional[Dict[str, Any]] = None
     positions: List[Position]
 
 
@@ -212,4 +216,3 @@ async def hedge_plan(req: HedgeRequest = Body(...)) -> Dict[str, Any]:
         }
 
     return out
-

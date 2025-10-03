@@ -417,6 +417,7 @@ async def tradingview_chart(
 
       widget.onChartReady(function() {{
         const chart = widget.activeChart();
+        const scale = chart.timeScale();
 
         const addHL = (price, text, color, style) => {{
           if (price === null || price === undefined) return;
@@ -430,12 +431,63 @@ async def tradingview_chart(
           }} catch(e) {{}}
         }};
 
-        // Defer slightly to ensure data is present
+        const addZone = (lower, upper, colorHex) => {{
+          if (lower === null || upper === null || lower === undefined || upper === undefined) return;
+          if (Number.isNaN(lower) || Number.isNaN(upper) || lower === upper) return;
+          const range = scale.getVisibleRange();
+          if (!range) return;
+          try {{
+            chart.createShape(
+              [
+                {{ time: range.from, price: Math.max(lower, upper) }},
+                {{ time: range.to, price: Math.min(lower, upper) }}
+              ],
+              {{
+                shape: 'rectangle',
+                text: '',
+                color: colorHex,
+                backgroundColor: colorHex,
+                transparency: 80,
+                lock: true,
+                disableSelection: true,
+              }}
+            );
+          }} catch(e) {{}}
+        }};
+
         setTimeout(() => {{
           addHL(entryVal, 'Entry', '#22c55e', 0);
           addHL(stopVal, 'Stop', '#ef4444', 0);
           addHL(tp1Val, 'TP1', '#2563eb', 0);
           addHL(tp2Val, 'TP2', '#2563eb', 2);
+
+          const vals = [entryVal, stopVal, tp1Val, tp2Val].map(v => (v === null || v === undefined ? null : Number(v)));
+          const [entryP, stopP, tp1P, tp2P] = vals;
+          let profitTarget = tp1P !== null ? tp1P : tp2P;
+          if (profitTarget === null) {{
+            profitTarget = tp2P !== null ? tp2P : null;
+          }}
+          const direction = (() => {{
+            if (profitTarget !== null && entryP !== null) {{
+              if (profitTarget > entryP) return 'long';
+              if (profitTarget < entryP) return 'short';
+            }}
+            if (stopP !== null && entryP !== null) {{
+              return stopP > entryP ? 'short' : 'long';
+            }}
+            return 'long';
+          }})();
+
+          if (entryP !== null && stopP !== null) {{
+            const low = Math.min(entryP, stopP);
+            const high = Math.max(entryP, stopP);
+            addZone(low, high, direction === 'long' ? 'rgba(248,113,113,0.35)' : 'rgba(74,222,128,0.3)');
+          }}
+          if (entryP !== null && profitTarget !== null) {{
+            const low = Math.min(entryP, profitTarget);
+            const high = Math.max(entryP, profitTarget);
+            addZone(low, high, direction === 'long' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)');
+          }}
         }}, 250);
 
         try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}}

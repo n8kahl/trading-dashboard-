@@ -426,11 +426,18 @@ async def tradingview_chart(
             color: cfg.color,
             lineWidth: cfg.lineWidth || 1,
             lineStyle: cfg.lineStyle || 0,
+            extendLeft: true,
+            extendRight: true,
           }});
           if (line && cfg.text) {{
             line.setText(cfg.text);
           }}
         }});
+
+        try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}}
+        try {{ chart.createStudy('MA Exp', false, false, [20]); }} catch(e) {{}}
+        try {{ chart.createStudy('MA Exp', false, false, [50]); }} catch(e) {{}}
+        try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
       }});
     </script>
   </body>

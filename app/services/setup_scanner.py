@@ -613,30 +613,48 @@ async def scan_top_setups(
             if not tradable and price < 5:
                 continue  # skip illiquid low price names
 
-        # Build chart link with simple entry/stop markers from timeframe signal
         try:
             note = quote(item.get('setup') or '')
         except Exception:
             note = ''
-        entry = None
-        sl = None
+        entry = sl = tp1 = tp2 = None
         try:
             tf = item.get('timeframes') or {}
             h1 = tf.get('h1') or {}
             h4 = tf.get('h4') or {}
-            # Prefer 1H prev_high for breakout/retest; else 4H
-            e = h1.get('prev_high') or h4.get('prev_high')
+            daily = tf.get('daily') or {}
+            e = h1.get('prev_high') or h4.get('prev_high') or daily.get('prev_high')
+            s = h1.get('prev_low') or h4.get('prev_low') or daily.get('prev_low')
+            t1 = daily.get('last_high') or h4.get('last_high') or daily.get('prev_high')
+            t2 = daily.get('prev_high') or daily.get('last_close')
             if isinstance(e, (int, float)):
                 entry = round(float(e), 2)
-                sl = round(entry * 0.996, 2)  # ~0.4% buffer
+            if isinstance(s, (int, float)):
+                sl = round(float(s), 2)
+            if isinstance(t1, (int, float)):
+                tp1 = round(float(t1), 2)
+            if isinstance(t2, (int, float)):
+                tp2 = round(float(t2), 2)
         except Exception:
-            entry = sl = None
+            entry = sl = tp1 = tp2 = None
+
+        item['chart_params'] = {
+            'entry': entry,
+            'stop': sl,
+            'tp1': tp1,
+            'tp2': tp2,
+        }
+
         if item.get('symbol'):
             url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}"
             if entry is not None:
                 url += f"&entry={entry}"
             if sl is not None:
                 url += f"&sl={sl}"
+            if tp1 is not None:
+                url += f"&tp1={tp1}"
+            if tp2 is not None:
+                url += f"&tp2={tp2}"
             item['chart_url'] = url
         else:
             item['chart_url'] = None

@@ -417,35 +417,30 @@ async def tradingview_chart(
 
       widget.onChartReady(function() {{
         const chart = widget.activeChart();
-        const range = chart.getVisibleRange();
-        const anchorTime = range ? range.from : undefined;
-        const addLine = (price, text, color, style) => {{
+
+        const addHL = (price, text, color, style) => {{
           if (price === null || price === undefined) return;
           try {{
-            chart.createShape(
-              {{ time: anchorTime, price: price }},
-              {{
-                shape: 'horizontal_line',
-                text: text,
-                textcolor: color,
-                color: color,
-                linewidth: 2,
-                linestyle: style || 0,
-                lock: true,
-                disableSelection: true,
-              }}
-            );
+            const line = chart.createHorizontalLine(price, {{
+              color: color,
+              lineWidth: 2,
+              lineStyle: style || 0,
+            }});
+            if (line && text) {{ line.setText(text); }}
           }} catch(e) {{}}
         }};
 
-        addLine(entryVal, 'Entry', '#22c55e', 0);
-        addLine(stopVal, 'Stop', '#ef4444', 0);
-        addLine(tp1Val, 'TP1', '#2563eb', 0);
-        addLine(tp2Val, 'TP2', '#2563eb', 2);
+        // Defer slightly to ensure data is present
+        setTimeout(() => {{
+          addHL(entryVal, 'Entry', '#22c55e', 0);
+          addHL(stopVal, 'Stop', '#ef4444', 0);
+          addHL(tp1Val, 'TP1', '#2563eb', 0);
+          addHL(tp2Val, 'TP2', '#2563eb', 2);
+        }}, 250);
 
         try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}}
-        try {{ chart.createStudy('MA Exp', false, false, [20]); }} catch(e) {{}}
-        try {{ chart.createStudy('MA Exp', false, false, [50]); }} catch(e) {{}}
+        try {{ chart.createStudy('Moving Average Exponential', false, false, [20]); }} catch(e) {{}}
+        try {{ chart.createStudy('Moving Average Exponential', false, false, [50]); }} catch(e) {{}}
         try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
 
         const fmt = (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2));

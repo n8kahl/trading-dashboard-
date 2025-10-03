@@ -9,6 +9,6 @@ router = APIRouter(prefix="/api/v1/market", tags=["market"], include_in_schema=F
 
 
 @router.get("/setups")
-async def market_setups(limit: int = Query(10, ge=3, le=30)) -> Dict[str, Any]:
-    setups = await scan_top_setups(limit=limit)
+async def market_setups(limit: int = Query(10, ge=3, le=30), include_options: bool = Query(False)) -> Dict[str, Any]:
+    setups = await scan_top_setups(limit=limit, include_options=include_options)
     return {"ok": True, "count": len(setups), "setups": setups}

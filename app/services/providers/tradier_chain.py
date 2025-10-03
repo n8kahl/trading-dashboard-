@@ -42,3 +42,18 @@ async def options_chain(symbol: str, expiry: str, greeks: bool=True) -> List[Dic
             "oi": o.get("open_interest"), "volume": o.get("volume")
         })
     return out
+
+async def expirations(symbol: str) -> List[str]:
+    """Return a list of ISO date strings for available expirations."""
+    url = f"{BASE}/markets/options/expirations"
+    params = {"symbol": symbol.upper(), "includeAllRoots": "true", "strikes": "false"}
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        if _trad_rl is not None:
+            await _trad_rl.wait(1.0)
+        r = await c.get(url, headers=_hdrs(), params=params)
+        r.raise_for_status()
+        j = r.json() or {}
+    exps = ((j.get("expirations") or {}).get("date") or [])
+    if not isinstance(exps, list):
+        exps = [exps] if exps else []
+    return [str(x) for x in exps]

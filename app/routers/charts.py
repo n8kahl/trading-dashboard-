@@ -346,6 +346,7 @@ async def chart_proposal(
         'TP1': 'null' if tp1 is None else str(tp1),
         'TP2': 'null' if tp2 is None else str(tp2),
         'ENTRY_TIME': 'null' if entry_time is None else str(int(entry_time)),
+        'STATE': escape(state or ''),
     })
     return Response(content=html, media_type="text/html; charset=utf-8")
 
@@ -497,17 +498,17 @@ async def tradingview_chart(
 
         const fmt = (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2));
         const list = [
-          `<li><strong>Entry</strong> ${{fmt(entryVal)}}</li>`,
-          `<li><strong>Stop</strong> ${{fmt(stopVal)}}</li>`,
-          `<li><strong>TP1</strong> ${{fmt(tp1Val)}}</li>`,
-          `<li><strong>TP2</strong> ${{fmt(tp2Val)}}</li>`
+          `<li><strong>Entry</strong> ${fmt(entryVal)}</li>`,
+          `<li><strong>Stop</strong> ${fmt(stopVal)}</li>`,
+          `<li><strong>TP1</strong> ${fmt(tp1Val)}</li>`,
+          `<li><strong>TP2</strong> ${fmt(tp2Val)}</li>`
         ].filter(Boolean).join('');
         const noteEl = document.getElementById('note');
         const fallbackTitle = '{escape(sym)} plan';
         const title = userNote ? userNote : fallbackTitle;
         noteEl.innerHTML = `
-          <h4>\${{title}}</h4>
-          <ul>\${{list}}</ul>
+          <h4>${title}</h4>
+          <ul>${list}</ul>
         `;
       }});
     </script>

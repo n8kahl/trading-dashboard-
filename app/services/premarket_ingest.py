@@ -80,6 +80,7 @@ async def _feed_latest_video(channel_id: str) -> Optional[Dict[str, Any]]:
         ns = {
             'atom': 'http://www.w3.org/2005/Atom',
             'yt': 'http://www.youtube.com/xml/schemas/2015',
+            'media': 'http://search.yahoo.com/mrss/'
         }
         entry = root.find('atom:entry', ns)
         if entry is None:
@@ -87,6 +88,9 @@ async def _feed_latest_video(channel_id: str) -> Optional[Dict[str, Any]]:
         vid_el = entry.find('yt:videoId', ns)
         title_el = entry.find('atom:title', ns)
         published_el = entry.find('atom:published', ns)
+        # Optional long description
+        desc_el = entry.find('media:group/media:description', ns)
+        description = desc_el.text if desc_el is not None else None
         if vid_el is None:
             return None
         return {
@@ -94,6 +98,7 @@ async def _feed_latest_video(channel_id: str) -> Optional[Dict[str, Any]]:
             'snippet': {
                 'title': title_el.text if title_el is not None else None,
                 'publishedAt': published_el.text if published_el is not None else None,
+                'description': description,
             },
         }
     except Exception:
@@ -135,6 +140,19 @@ def _extract_events(text: str) -> List[Dict[str, Any]]:
         if k in text.upper():
             out.append({"name": k})
     return out[:10]
+
+
+def _infer_sentiment(text: Optional[str]) -> str:
+    if not text:
+        return "neutral"
+    t = text.lower()
+    pos = sum(k in t for k in ["bullish", "breakout", "strength", "accumulation", "bid"])
+    neg = sum(k in t for k in ["bearish", "breakdown", "weak", "distribution", "sell-off", "selloff"])
+    if pos > neg and pos >= 1:
+        return "bullish"
+    if neg > pos and neg >= 1:
+        return "bearish"
+    return "neutral"
 
 
 async def _already_ingested(session: AsyncSession, video_id: str) -> bool:
@@ -189,12 +207,18 @@ async def ingest_premarket_once() -> Optional[Dict[str, Any]]:
     summary = None
     watchlist: List[str] = []
     events: List[Dict[str, Any]] = []
+    description = (snip.get("description") or None)
     if transcript:
         # crude summary: first ~60 words
         parts = transcript.split()
         summary = " ".join(parts[:60]) + (" …" if len(parts) > 60 else "")
         watchlist = _extract_tickers(transcript)
         events = _extract_events(transcript)
+    elif description:
+        parts = description.split()
+        summary = " ".join(parts[:60]) + (" …" if len(parts) > 60 else "")
+        watchlist = _extract_tickers(description)
+        events = _extract_events(description)
 
     payload: Dict[str, Any] = {
         "video_id": vid,
@@ -205,6 +229,8 @@ async def ingest_premarket_once() -> Optional[Dict[str, Any]]:
         "events": events,
         "source_url": f"https://www.youtube.com/watch?v={vid}",
         "ts": _now_utc().isoformat(),
+        "sentiment": _infer_sentiment(transcript or description or ""),
+        "top_watch": (watchlist or [])[0:3],
     }
 
     async with SessionLocal() as s:

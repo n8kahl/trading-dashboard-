@@ -511,6 +511,51 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                     if feat and isinstance(feat.payload, dict):
                         pre = feat.payload
                         break
+                # Enrich with advisory if missing basics
+                advisory: Dict[str, Any] = {}
+                try:
+                    # sentiment fallback based on market overview if absent
+                    if pre is None:
+                        pre = {}
+                    if not pre.get("sentiment"):
+                        mo = await market_overview_route(indices="SPY,QQQ", sectors="XLK,XLV,XLF,XLE,XLY,XLP,XLI,XLB,XLRE,XLU,XLC")
+                        spy = ((mo or {}).get("indices") or {}).get("SPY") or {}
+                        qqq = ((mo or {}).get("indices") or {}).get("QQQ") or {}
+                        chg = [x for x in [spy.get("change_pct"), qqq.get("change_pct")] if isinstance(x, (int, float))]
+                        if chg and sum(1 for x in chg if x > 0.2) >= 1:
+                            pre["sentiment"] = "bullish"
+                        elif chg and sum(1 for x in chg if x < -0.2) >= 1:
+                            pre["sentiment"] = "bearish"
+                        else:
+                            pre["sentiment"] = pre.get("sentiment") or "neutral"
+                    # ensure tickers list
+                    tickers = pre.get("watchlist") or ["SPY","QQQ","AAPL","NVDA"]
+                    pre["watchlist"] = tickers
+                    # top three things to watch (levels + events)
+                    try:
+                        lv = await market_compute_levels(PolygonMarket(), "SPY") if PolygonMarket else None
+                    except Exception:
+                        lv = None
+                    top_watch: List[str] = []
+                    if lv and lv.get("ok"):
+                        kl = (lv.get("key_levels") or {})
+                        if kl.get("premarket_high"):
+                            top_watch.append(f"SPY premarket high {kl['premarket_high']}: reclaim/reject test")
+                        if kl.get("prev_high") and kl.get("prev_low"):
+                            top_watch.append(f"Yesterday range {kl['prev_low']}–{kl['prev_high']}: respect breakouts/fakeouts")
+                    evs = pre.get("events") or []
+                    if isinstance(evs, list) and evs:
+                        names = ", ".join(str(e.get("name") or "") for e in evs if isinstance(e, dict))
+                        if names.strip():
+                            top_watch.append(f"Scheduled events: {names}")
+                    if not top_watch:
+                        top_watch = ["Watch SPY premarket extremes and yesterday range", "Monitor spreads/liquidity on open", "Reassess bias after first 15 minutes"]
+                    pre["top_watch"] = pre.get("top_watch") or top_watch[:3]
+                    # attribution
+                    pre.setdefault("brand", "HoneyDrip Network")
+                    pre.setdefault("cta", "Join HoneyDrip Network Discord for daily premarket guidance")
+                except Exception:
+                    pass
                 return {"ok": True, "op": op, "data": {"premarket": pre}}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})

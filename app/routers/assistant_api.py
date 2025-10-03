@@ -12,6 +12,9 @@ from app.routers.diag import providers as diag_providers
 from app.routers.market import market_overview as market_overview_route
 from app.routers.hedge import HedgeRequest, hedge_plan
 from app.routers.market_data import compute_levels as market_compute_levels
+from sqlalchemy import select, desc
+from app.db.session import SessionLocal
+from app.db.models import Feature
 
 router = APIRouter(prefix="/api/v1")
 
@@ -1045,6 +1048,24 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
             ctx_ref["prev_day_levels"] = prev_day_data
         if levels_session:
             ctx_ref["levels_session_utc"] = levels_session
+
+        # Attach premarket webinar context (if a Feature row exists for today)
+        try:
+            async with SessionLocal() as s:
+                # Prefer per-symbol feature, then wildcard "*"
+                stmt = (
+                    select(Feature)
+                    .where(Feature.horizon == "premarket")
+                    .where(Feature.symbol.in_([sym, "*"]))
+                    .order_by(desc(Feature.created_at))
+                    .limit(1)
+                )
+                res = await s.execute(stmt)
+                feat = res.scalars().first()
+                if feat and isinstance(feat.payload, dict):
+                    ctx_ref["premarket"] = feat.payload
+        except Exception:
+            pass
         # Phase 5: simple risk flags
         picks_local = (out.get("options") or {}).get("top") or []
         liq_trend = (out.get("context") or {}).get("liquidity_trend")

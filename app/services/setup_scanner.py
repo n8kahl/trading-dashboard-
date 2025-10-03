@@ -45,6 +45,7 @@ class _TimeframeState:
 
 _CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _CACHE_TTL = 45  # seconds
+_PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"
 
 
 def _tf_state(bars: List[Dict[str, Any]], current: Optional[float], breakout_buffer: float = 0.0025) -> _TimeframeState:
@@ -738,9 +739,12 @@ async def scan_top_setups(
             clone = dict(item)
             clone['quality_gate'] = False
             clone['gate_misses'] = gates_missed
+            # Only surface fallback if options are usable (grade A/B, spreads reasonable) when include_options is True
+            if include_options:
+                if 'options_missing' in gates_missed or 'options_grade' in gates_missed or 'spread' in gates_missed:
+                    continue
             fallback.append(clone)
         ranked = sorted(fallback, key=lambda x: x.get('score', 0), reverse=True)[:max(1, min(limit, 3))]
 
     _CACHE[cache_key] = (now, ranked)
     return ranked
-_PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"

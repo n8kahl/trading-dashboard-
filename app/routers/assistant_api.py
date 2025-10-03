@@ -444,9 +444,25 @@ class ExecRequest(BaseModel):
         "market.overview",
         "assistant.hedge",
         "premarket.context",
+        "positions.manage",
         "data.snapshot",
     ]
     args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PositionSpec(BaseModel):
+    symbol: str
+    type: Literal["call", "put"]
+    side: Literal["long", "short"]
+    strike: float
+    expiry: str
+    qty: int = 1
+    avg_price: Optional[float] = None
+
+
+class PositionsManageRequest(BaseModel):
+    positions: List[PositionSpec]
+    horizon: str = Field(default="swing")
 
 
 class ArgsMarketOverview(BaseModel):
@@ -603,6 +619,176 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                 return {"ok": True, "op": op, "data": {"premarket": pre}}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})
+
+    if op == "positions.manage":
+        try:
+            req = PositionsManageRequest.model_validate(payload.args or {})
+        except ValidationError as exc:
+            raise _bad_request(op, "Invalid args", {"errors": exc.errors()}) from exc
+
+        if not req.positions:
+            raise _bad_request(op, "At least one position required")
+
+        pos = req.positions[0]
+        sym = pos.symbol.upper()
+        horizon = (req.horizon or "swing").lower()
+
+        snap_args = {
+            "symbols": [sym],
+            "horizon": horizon,
+            "include": ["options"],
+            "options": {
+                "expiry": str(pos.expiry),
+                "topK": 8,
+                "maxSpreadPct": 12,
+                "greeks": True,
+            },
+        }
+
+        snapshot = await _handle_snapshot(snap_args)
+        sym_data = (snapshot.get("snapshot", {}) or {}).get("symbols", {}).get(sym) or {}
+        errors = snapshot.get("errors") or {}
+
+        options_block = (sym_data.get("options") or {})
+        picks: List[Dict[str, Any]] = options_block.get("top") or []
+        for p in picks:
+            try:
+                _attach_display_fields(sym, p)
+            except Exception:
+                pass
+
+        match = None
+        if picks:
+            same_type = [r for r in picks if str(r.get("type")).lower() == pos.type]
+            same_exp = [r for r in same_type if str(r.get("expiry")) == str(pos.expiry)]
+            candidates = same_exp or same_type
+            if candidates:
+                try:
+                    match = min(candidates, key=lambda r: abs(float(r.get("strike", 0.0)) - float(pos.strike)))
+                except Exception:
+                    match = candidates[0]
+
+        context = sym_data.get("context") or {}
+        expected_move = context.get("expected_move") or {}
+        key_levels = context.get("key_levels") or {}
+        fibs = context.get("fibonacci") or {}
+        chart_url = None
+        if match:
+            chart_url = match.get("chart_url")
+
+        # Position analytics
+        curr_bid = match.get("bid") if match else None
+        curr_ask = match.get("ask") if match else None
+        mid = None
+        try:
+            if curr_bid is not None and curr_ask is not None:
+                mid = round((float(curr_bid) + float(curr_ask)) / 2.0, 2)
+        except Exception:
+            mid = None
+        pl_dollars = None
+        pl_percent = None
+        if pos.avg_price is not None and curr_bid is not None:
+            try:
+                pl_dollars = round((float(curr_bid) - float(pos.avg_price)) * 100 * int(pos.qty or 1), 2)
+                pl_percent = round((float(curr_bid) - float(pos.avg_price)) / float(pos.avg_price) * 100.0, 2)
+            except Exception:
+                pl_dollars = pl_percent = None
+
+        breakeven = None
+        try:
+            if pos.avg_price is not None:
+                if pos.type == "call":
+                    breakeven = round(float(pos.strike) + float(pos.avg_price), 2)
+                else:
+                    breakeven = round(float(pos.strike) - float(pos.avg_price), 2)
+        except Exception:
+            breakeven = None
+
+        tradeability = match.get("tradeability") if match else None
+        confidence = None
+        if tradeability is not None:
+            try:
+                confidence = int(max(20.0, min(90.0, float(tradeability))))
+            except Exception:
+                confidence = None
+
+        # Recommendations & actions
+        recommendation = "review"
+        actions: Dict[str, Any] = {}
+
+        if match:
+            prob = match.get("hit_probabilities") or {}
+            tp1_prob = prob.get("tp1")
+            try:
+                loss_pct = float(pl_percent) if pl_percent is not None else None
+                if loss_pct is not None and loss_pct <= -15 and (tp1_prob is not None and float(tp1_prob) < 0.5):
+                    recommendation = "trim"
+                else:
+                    recommendation = "hold"
+            except Exception:
+                recommendation = "hold"
+
+            if mid is not None:
+                actions["trim"] = {"limit": mid, "qty": max(1, int(pos.qty or 1) // 2)}
+            if expected_move and expected_move.get("abs") and sym_data.get("price", {}).get("last"):
+                try:
+                    last_px = float(sym_data["price"]["last"])
+                    em_abs = float(expected_move["abs"])
+                    stop = round((last_px - 0.25 * em_abs) if pos.type == "call" else (last_px + 0.25 * em_abs), 2)
+                    actions["cut"] = {"underlying_stop": stop}
+                except Exception:
+                    pass
+            try:
+                from datetime import date, timedelta
+                exp_dt = date.fromisoformat(str(pos.expiry))
+                target_exp = exp_dt + timedelta(days=28)
+                actions["roll"] = {
+                    "strike": float(pos.strike),
+                    "type": pos.type,
+                    "target_expiry": target_exp.isoformat(),
+                }
+            except Exception:
+                pass
+            if sym_data.get("price", {}).get("last"):
+                try:
+                    last_px = float(sym_data["price"]["last"])
+                    hedge_strike = round(last_px * (0.95 if pos.type == "call" else 1.05), 2)
+                    actions["hedge"] = {
+                        "type": "put" if pos.type == "call" else "call",
+                        "strike": hedge_strike,
+                        "expiry": str(pos.expiry),
+                    }
+                except Exception:
+                    pass
+
+        result = {
+            "position": {
+                "symbol": sym,
+                "type": pos.type,
+                "side": pos.side,
+                "strike": pos.strike,
+                "expiry": pos.expiry,
+                "qty": pos.qty,
+                "avg_price": pos.avg_price,
+                "breakeven": breakeven,
+                "pl_dollars": pl_dollars,
+                "pl_percent": pl_percent,
+            },
+            "contract": match or {},
+            "market": {
+                "price": sym_data.get("price"),
+                "expected_move": expected_move,
+                "key_levels": key_levels,
+                "fibonacci": fibs,
+                "chart_url": chart_url,
+            },
+            "actions": actions,
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "snapshot_errors": errors,
+        }
+
+        return {"ok": True, "op": op, "data": result}
 
     if op == "data.snapshot":
         try:

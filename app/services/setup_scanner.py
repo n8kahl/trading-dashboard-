@@ -438,11 +438,17 @@ def _options_grade(score: Optional[float]) -> Optional[str]:
     return "D"
 
 
-async def scan_top_setups(limit: int = 10, include_options: bool = False, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+async def scan_top_setups(
+    limit: int = 10,
+    include_options: bool = False,
+    symbols: Optional[List[str]] = None,
+    strict: bool = True,
+    min_confidence: int = 70,
+) -> List[Dict[str, Any]]:
     if PolygonMarket is None:
         return []
     sym_key = ",".join(sorted([s.upper() for s in (symbols or [])])) if symbols else "auto"
-    cache_key = f"top:{limit}:opts:{1 if include_options else 0}:syms:{sym_key}"
+    cache_key = f"top:{limit}:opts:{1 if include_options else 0}:syms:{sym_key}:strict:{1 if strict else 0}:minc:{min_confidence}"
     now = time.time()
     cached = _CACHE.get(cache_key)
     if cached and now - cached[0] < _CACHE_TTL:
@@ -644,7 +650,7 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False, symbol
 
     filtered: List[Dict[str, Any]] = []
     for item in ranked_all:
-        if item.get('confidence', 0) < 70:
+        if item.get('confidence', 0) < (min_confidence or 70):
             continue
         price = _safe_float(item.get('price')) or 0.0
         if price < 3:
@@ -698,6 +704,43 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False, symbol
         selected.append(item)
 
     ranked = selected[:limit]
+    # Fallback: if no items survived and caller specified symbols, return best-available with quality flags
+    if not ranked and symbols and ranked_all:
+        fallback: List[Dict[str, Any]] = []
+        for item in ranked_all:
+            gates_missed: List[str] = []
+            if (item.get('confidence', 0) < (min_confidence or 70)):
+                gates_missed.append('confidence')
+            price = _safe_float(item.get('price')) or 0.0
+            if price < 3:
+                gates_missed.append('price')
+            pref = item.get('preferred_option') if include_options else None
+            if include_options:
+                if not pref:
+                    gates_missed.append('options_missing')
+                else:
+                    grade = pref.get('grade')
+                    if grade not in {'A','B'}:
+                        gates_missed.append('options_grade')
+                    sp = pref.get('spread_pct')
+                    if sp is None:
+                        b = pref.get('bid'); a = pref.get('ask')
+                        try:
+                            if b is not None and a is not None and a > 0:
+                                sp = ((a - b)/a)*100.0
+                        except Exception:
+                            sp = None
+                    try:
+                        if sp is None or float(sp) > 20.0:
+                            gates_missed.append('spread')
+                    except Exception:
+                        gates_missed.append('spread')
+            clone = dict(item)
+            clone['quality_gate'] = False
+            clone['gate_misses'] = gates_missed
+            fallback.append(clone)
+        ranked = sorted(fallback, key=lambda x: x.get('score', 0), reverse=True)[:max(1, min(limit, 3))]
+
     _CACHE[cache_key] = (now, ranked)
     return ranked
 _PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"

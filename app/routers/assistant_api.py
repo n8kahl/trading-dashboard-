@@ -607,6 +607,8 @@ class ArgsMarketSetups(BaseModel):
     limit: int = Field(default=10, ge=3, le=30)
     include_options: bool = Field(default=True)
     symbols: Optional[List[str]] = None
+    strict: bool = Field(default=True)
+    min_confidence: int = Field(default=70, ge=0, le=100)
 
 
 def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:
@@ -686,7 +688,9 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
             setups = await _scan_top_setups(
                 limit=args.limit,
                 include_options=bool(getattr(args, 'include_options', False)),
-                symbols=[str(s).upper() for s in (getattr(args, 'symbols', None) or [])]
+                symbols=[str(s).upper() for s in (getattr(args, 'symbols', None) or [])],
+                strict=bool(getattr(args, 'strict', True)),
+                min_confidence=int(getattr(args, 'min_confidence', 70)),
             )
             return {"ok": True, "op": op, "data": {"count": len(setups), "setups": setups}}
         except Exception as exc:

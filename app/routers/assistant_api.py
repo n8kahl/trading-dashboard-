@@ -908,6 +908,24 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                 if picks and lp is not None:
                     em_abs, em_rel = _simple_em_from_straddle(lp, picks)
                     if em_abs:
+                        # Composite ODTE scoring helper
+                        def _odte_composite(r: Dict[str, Any]) -> Optional[float]:
+                            try:
+                                st = r.get("spread_stability")
+                                st_s = float(st) if isinstance(st,(int,float)) else 0.5
+                                sp = r.get("spread_pct")
+                                sp_s = 1.0 - min(1.0, float(sp or 0.0)/12.0)
+                                d = r.get("delta")
+                                target = 0.50 if horizon in ("scalp","intraday") else 0.35
+                                d_s = 1.0 - min(1.0, abs(abs(float(d or 0.0)) - target))
+                                ivp = r.get("iv_percentile")
+                                iv_s = 1.0 - min(1.0, abs(float((ivp or 50.0))-50.0)/50.0)
+                                oi = float(r.get("oi") or 0.0); vol = float(r.get("volume") or 0.0)
+                                liq_s = min(1.0, oi/2000.0 + vol/5000.0)
+                                score = st_s*0.30 + d_s*0.30 + iv_s*0.15 + liq_s*0.15 + sp_s*0.10
+                                return max(0.0, min(1.0, score))
+                            except Exception:
+                                return None
                         # Percentiles from chain rows (IV/OI/Volume) if available
                         def _extract_fields(rows: List[Dict[str, Any]]):
                             ivs: List[float] = []
@@ -1017,6 +1035,9 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                 "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
                                 "tp2": _p_touch(em_abs*0.50, em_abs) if em_abs else None,
                             }
+                            sc = _odte_composite(r)
+                            if sc is not None:
+                                r["odte_score"] = round(sc*100.0, 1)
                 # EM & probabilities if we have picks and last price
                 if picks and lp is not None:
                     em_abs, em_rel = _simple_em_from_straddle(lp, picks)
@@ -1115,6 +1136,13 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                         # Limit sampling scope to avoid latency explosion
                         try:
                             await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                        except Exception:
+                            pass
+                        # Tighten gates and rank for ODTE/scalp
+                        try:
+                            if odte_flag or horizon == "scalp":
+                                picks = [p for p in picks if (p.get("spread_stability") is None) or (p.get("spread_stability") >= 0.6)]
+                                picks.sort(key=lambda x: x.get("odte_score", -1), reverse=True)
                         except Exception:
                             pass
                         # Tighten quality gates for ODTE/scalp: require spread stability ≥ 0.6 when available
@@ -1369,6 +1397,21 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if poly:
             try:
+                # Intraday metrics (VWAP, sigma, RVOL)
+                try:
+                    mins = await poly.minute_bars_today(sym)
+                    vwap, sig_tp = _vwap_sig(mins)
+                    rvol5 = _rvol5(mins)
+                    out.setdefault("context", {}).setdefault("intraday", {})
+                    intr = out["context"]["intraday"]
+                    if vwap is not None:
+                        intr["vwap"] = vwap
+                    if sig_tp is not None:
+                        intr["sigma_tp"] = sig_tp
+                    if rvol5 is not None:
+                        intr["rvol5"] = rvol5
+                except Exception:
+                    pass
                 lpayload = await market_compute_levels(poly, sym)
                 if lpayload and lpayload.get("ok"):
                     levels_payload = lpayload

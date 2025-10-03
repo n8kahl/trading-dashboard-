@@ -21,6 +21,7 @@ Optional
 - `POST /api/v1/assistant/exec`
   - Single action router for Chat-Data: body `{ "op": <name>, "args": { ... } }`.
   - Primary ops: `diag.health`, `diag.providers`, `assistant.actions`, `market.overview`, `assistant.hedge`.
+    - Premarket context: `premarket.context` returns the latest stored premarket Feature (summary, watchlist, events, source_url). Optional `args.symbols:["SPY"]` prefers a symbol-specific Feature if present.
     - `diag.*` ops report health/provider readiness.
     - `assistant.actions` lists supported ops plus provider/import diagnostics.
     - `market.overview` accepts `{ indices?: string[], sectors?: string[] }` and returns macro context.

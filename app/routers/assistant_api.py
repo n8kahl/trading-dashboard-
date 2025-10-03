@@ -384,6 +384,7 @@ PRIMARY_OPS: Tuple[str, ...] = (
     "assistant.actions",
     "market.overview",
     "assistant.hedge",
+    "premarket.context",
 )
 
 LEGACY_OPS: Tuple[str, ...] = ("data.snapshot",)
@@ -396,6 +397,7 @@ class ExecRequest(BaseModel):
         "assistant.actions",
         "market.overview",
         "assistant.hedge",
+        "premarket.context",
         "data.snapshot",
     ]
     args: Dict[str, Any] = Field(default_factory=dict)
@@ -481,6 +483,37 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
         ok = bool(hedge_resp.get("ok", True))
         data = {k: v for k, v in hedge_resp.items() if k != "ok"}
         return {"ok": ok, "op": op, "data": data}
+
+    if op == "premarket.context":
+        # Return the most recent premarket Feature payload (symbol-specific takes precedence, then wildcard "*")
+        symbols_req = []
+        try:
+            symbols_req = [str(s).upper() for s in (payload.args or {}).get("symbols") or []]
+        except Exception:
+            symbols_req = []
+        try:
+            async with SessionLocal() as s:
+                # If a specific symbol list is provided, try the first symbol, else wildcard
+                where_symbols = symbols_req[:1] if symbols_req else []
+                # Build ordered search: first provided symbol if any, then wildcard
+                search_syms = where_symbols + (["*"] if "*" not in where_symbols else [])
+                pre: Optional[Dict[str, Any]] = None
+                for symq in search_syms or ["*"]:
+                    stmt = (
+                        select(Feature)
+                        .where(Feature.horizon == "premarket")
+                        .where(Feature.symbol == symq)
+                        .order_by(desc(Feature.created_at))
+                        .limit(1)
+                    )
+                    res = await s.execute(stmt)
+                    feat = res.scalars().first()
+                    if feat and isinstance(feat.payload, dict):
+                        pre = feat.payload
+                        break
+                return {"ok": True, "op": op, "data": {"premarket": pre}}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})
 
     if op == "data.snapshot":
         try:

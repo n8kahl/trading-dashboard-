@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.routers.diag import providers as diag_providers
 from app.routers.market import market_overview as market_overview_route
+try:
+    from app.services.setup_scanner import scan_top_setups as _scan_top_setups
+except Exception:
+    _scan_top_setups = None  # type: ignore
 from app.routers.hedge import HedgeRequest, hedge_plan
 from app.routers.market_data import compute_levels as market_compute_levels
 from sqlalchemy import select, desc
@@ -556,6 +560,7 @@ PRIMARY_OPS: Tuple[str, ...] = (
     "diag.providers",
     "assistant.actions",
     "market.overview",
+    "market.setups",
     "assistant.hedge",
     "premarket.context",
 )
@@ -569,6 +574,7 @@ class ExecRequest(BaseModel):
         "diag.providers",
         "assistant.actions",
         "market.overview",
+        "market.setups",
         "assistant.hedge",
         "premarket.context",
         "positions.manage",
@@ -595,6 +601,10 @@ class PositionsManageRequest(BaseModel):
 class ArgsMarketOverview(BaseModel):
     indices: Optional[List[str]] = None
     sectors: Optional[List[str]] = None
+
+
+class ArgsMarketSetups(BaseModel):
+    limit: int = Field(default=10, ge=3, le=30)
 
 
 def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:
@@ -662,6 +672,19 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
         ok = bool(overview.get("ok", True))
         data = {k: v for k, v in overview.items() if k != "ok"}
         return {"ok": ok, "op": op, "data": data}
+
+    if op == "market.setups":
+        try:
+            args = ArgsMarketSetups.model_validate(payload.args or {})
+        except ValidationError as exc:
+            raise _bad_request(op, "Invalid args", {"errors": exc.errors()}) from exc
+        if _scan_top_setups is None:
+            raise _bad_request(op, "Setups scanner unavailable", {"import": "app.services.setup_scanner"})
+        try:
+            setups = await _scan_top_setups(limit=args.limit)
+            return {"ok": True, "op": op, "data": {"count": len(setups), "setups": setups}}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})
 
     if op == "assistant.hedge":
         try:

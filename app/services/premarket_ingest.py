@@ -42,6 +42,64 @@ async def _yt_search_latest_video(channel_id: str, api_key: str, max_results: in
     return items[0] if items else None
 
 
+async def _resolve_channel_id_from_url(channel_url: str) -> Optional[str]:
+    """Resolve a YouTube channel handle/canonical URL to a channel_id (UC...)."""
+    try:
+        url = channel_url.rstrip('/')
+        # Prefer the /about or /videos page for stable data
+        if not url.endswith('/about') and not url.endswith('/videos'):
+            url = url + '/about'
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            html = r.text
+        import re
+        # Try canonical link first
+        m = re.search(r'href="https://www\.youtube\.com/channel/(UC[\w-]{22})"', html)
+        if m:
+            return m.group(1)
+        # Try JSON blob
+        m = re.search(r'"channelId":"(UC[\w-]{22})"', html)
+        if m:
+            return m.group(1)
+    except Exception:
+        return None
+    return None
+
+
+async def _feed_latest_video(channel_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch latest video using public RSS feed (no API key)."""
+    import xml.etree.ElementTree as ET
+    feed = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(feed)
+            r.raise_for_status()
+            xml_text = r.text
+        root = ET.fromstring(xml_text)
+        ns = {
+            'atom': 'http://www.w3.org/2005/Atom',
+            'yt': 'http://www.youtube.com/xml/schemas/2015',
+        }
+        entry = root.find('atom:entry', ns)
+        if entry is None:
+            return None
+        vid_el = entry.find('yt:videoId', ns)
+        title_el = entry.find('atom:title', ns)
+        published_el = entry.find('atom:published', ns)
+        if vid_el is None:
+            return None
+        return {
+            'id': {'videoId': vid_el.text},
+            'snippet': {
+                'title': title_el.text if title_el is not None else None,
+                'publishedAt': published_el.text if published_el is not None else None,
+            },
+        }
+    except Exception:
+        return None
+
+
 def _pluck_transcript(video_id: str) -> Optional[str]:
     try:
         variants = YouTubeTranscriptApi.list_transcripts(video_id)
@@ -103,10 +161,22 @@ async def ingest_premarket_once() -> Optional[Dict[str, Any]]:
     """
     api_key = _env("YOUTUBE_API_KEY")
     channel_id = _env("YT_CHANNEL_ID")
-    if not api_key or not channel_id:
-        return None
+    channel_url = _env("YT_CHANNEL_URL")
 
-    latest = await _yt_search_latest_video(channel_id, api_key, max_results=5)
+    latest: Optional[Dict[str, Any]] = None
+    # Strategy: prefer API if key+id present; else resolve channel_id from URL and use public RSS.
+    if api_key and channel_id:
+        latest = await _yt_search_latest_video(channel_id, api_key, max_results=5)
+    elif channel_id:
+        latest = await _feed_latest_video(channel_id)
+    elif channel_url:
+        resolved = await _resolve_channel_id_from_url(channel_url)
+        if resolved:
+            latest = await _feed_latest_video(resolved)
+        else:
+            return None
+    else:
+        return None
     if not latest:
         return None
     vid = (latest.get("id") or {}).get("videoId")
@@ -159,4 +229,3 @@ async def run_on_startup() -> None:
     except Exception:
         # best-effort; do not crash app
         pass
-

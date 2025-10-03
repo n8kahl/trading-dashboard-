@@ -126,8 +126,9 @@ The backend reads the following environment variables:
 - `CHATDATA_BASE_URL` – optional API base (default `https://api.chat-data.com`)
 - `CHATDATA_API_PATH` – optional path (default `/v1/chat/completions`)
 - `CHATDATA_MODEL` – optional model ID to use
-- `YOUTUBE_API_KEY` – optional; enables YouTube premarket ingestion
-- `YT_CHANNEL_ID` – YouTube channel ID for the premarket stream owner
+- `YOUTUBE_API_KEY` – optional; enables YouTube premarket ingestion (Data API)
+- `YT_CHANNEL_ID` – optional channel ID (UC…); used with API or RSS
+- `YT_CHANNEL_URL` – optional channel/handle URL (e.g., https://www.youtube.com/@BrettCorrigan); resolves ID via public page and uses RSS (no API key)
 - `ENABLE_PREMARKET_INGEST` – `1` to fetch latest premarket video transcript on startup and store as a Feature
 - `DATABASE_URL` – async SQLAlchemy connection string (defaults to Postgres via `.env.server`; falls back to local SQLite if unset)
 - `DISCORD_WEBHOOK_URL` – optional webhook for trade + error notifications

@@ -685,14 +685,43 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
         if _scan_top_setups is None:
             raise _bad_request(op, "Setups scanner unavailable", {"import": "app.services.setup_scanner"})
         try:
+            symbols_list = [str(s).upper() for s in (getattr(args, 'symbols', None) or [])]
+            strict_flag = bool(getattr(args, 'strict', True))
+            min_conf = int(getattr(args, 'min_confidence', 70))
             setups = await _scan_top_setups(
                 limit=args.limit,
                 include_options=bool(getattr(args, 'include_options', False)),
-                symbols=[str(s).upper() for s in (getattr(args, 'symbols', None) or [])],
-                strict=bool(getattr(args, 'strict', True)),
-                min_confidence=int(getattr(args, 'min_confidence', 70)),
+                symbols=symbols_list,
+                strict=strict_flag,
+                min_confidence=min_conf,
             )
-            return {"ok": True, "op": op, "data": {"count": len(setups), "setups": setups}}
+            fallback_used = False
+            # Automatic second pass for broad scans (no symbols) when strict returns empty
+            if not setups and strict_flag and not symbols_list:
+                setups = await _scan_top_setups(
+                    limit=args.limit,
+                    include_options=bool(getattr(args, 'include_options', False)),
+                    symbols=None,
+                    strict=False,
+                    min_confidence=max(0, min_conf - 5 if min_conf else 65) or 65,
+                )
+                fallback_used = True
+
+            data = {"count": len(setups), "setups": setups}
+            if fallback_used:
+                data["fallback"] = True
+            # Suggest a next action (pull snapshot) for the top idea when symbols were targeted or we have any result
+            top = (setups[0] if setups else None)
+            if top and isinstance(top, dict) and top.get("symbol"):
+                data["next_action"] = {
+                    "op": "data.snapshot",
+                    "args": {
+                        "symbols": [top["symbol"]],
+                        "horizon": "intraday",
+                        "include": ["options"],
+                    },
+                }
+            return {"ok": True, "op": op, "data": data}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})
 

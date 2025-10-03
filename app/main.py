@@ -10,6 +10,7 @@ from app.routers.hedge import router as hedge_router
 from app.routers.market import router as market_router
 from app.routers.market_data import router as market_data_router
 from app.routers.storage import router as storage_router
+from app.services.premarket_ingest import run_on_startup as premarket_ingest_start
 
 app = FastAPI(title="Trading Assistant – Stable Exec Layer")
 
@@ -22,6 +23,8 @@ async def all_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def on_startup() -> None:
     await init_db()
+    # Optional premarket ingest (YouTube → Feature row)
+    await premarket_ingest_start()
 
 
 @app.get("/api/v1/diag/health")

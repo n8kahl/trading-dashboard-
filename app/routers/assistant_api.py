@@ -431,7 +431,6 @@ PRIMARY_OPS: Tuple[str, ...] = (
     "market.overview",
     "assistant.hedge",
     "premarket.context",
-    "positions.manage",
 )
 
 LEGACY_OPS: Tuple[str, ...] = ("data.snapshot",)
@@ -445,7 +444,6 @@ class ExecRequest(BaseModel):
         "market.overview",
         "assistant.hedge",
         "premarket.context",
-        "positions.manage",
         "data.snapshot",
     ]
     args: Dict[str, Any] = Field(default_factory=dict)
@@ -605,134 +603,6 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                 return {"ok": True, "op": op, "data": {"premarket": pre}}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})
-
-    if op == "positions.manage":
-        # Expect a single position; enrich with live snapshot + levels and propose concrete actions
-        pos = (payload.args or {}).get("positions") or []
-        try:
-            p = pos[0] if pos else {}
-            sym = str(p.get("symbol") or "").upper()
-            p_type = (str(p.get("type") or "").lower())
-            p_side = (str(p.get("side") or "").lower())
-            strike = p.get("strike")
-            expiry = p.get("expiry")
-            qty = int(p.get("qty") or 1)
-            avg_price = p.get("avg_price")
-            if not sym or p_type not in ("call","put") or not strike or not expiry:
-                raise ValueError("positions[0] must include symbol,type,side,strike,expiry,qty,avg_price")
-        except Exception as exc:
-            raise _bad_request(op, "Invalid positions payload", {"errors": str(exc)})
-
-        # Pull live last + options shortlist and levels
-        lp = await last_price(sym) if 'last_price' in locals() else None
-        picks, em_abs, em_rel, opt_ctx = await options_top(sym, lp)
-        # Pick the matching contract from picks (closest strike and same type)
-        match = None
-        if picks:
-            same_type = [r for r in picks if (r.get('type') == p_type)]
-            # prefer same expiry if present
-            same_exp = []
-            for r in same_type:
-                ex = r.get('expiry')
-                if ex and str(ex) == str(expiry):
-                    same_exp.append(r)
-            cand = same_exp or same_type
-            try:
-                match = min(cand, key=lambda r: abs(float(r.get('strike', 0)) - float(strike))) if cand else None
-            except Exception:
-                match = cand[0] if cand else None
-
-        # Levels context
-        levels_payload = None
-        try:
-            if PolygonMarket:
-                levels_payload = await market_compute_levels(PolygonMarket(), sym)
-        except Exception:
-            levels_payload = None
-
-        # Compose concrete actions
-        actions: Dict[str, Any] = {}
-        recommendation = None
-        confidence = None
-        if match:
-            _attach_display_fields(sym, match)
-            bid = match.get('bid'); ask = match.get('ask')
-            mid = None
-            try:
-                if bid is not None and ask is not None:
-                    mid = round((float(bid)+float(ask))/2.0, 2)
-            except Exception:
-                mid = None
-            prob = (match.get('hit_probabilities') or {})
-            tp1p = prob.get('tp1'); tp2p = prob.get('tp2')
-            tradeability = match.get('tradeability')
-            # Simple confidence
-            try:
-                base = float(tradeability or 50)
-                conf = max(20.0, min(90.0, base))
-                confidence = int(round(conf))
-            except Exception:
-                confidence = None
-            # Recommend: if EM exists and tp1 probability < 0.5 and loss > 15% → trim 1; else hold
-            try:
-                loss_pct = None
-                if avg_price is not None and bid is not None:
-                    loss_pct = (float(bid) - float(avg_price)) / float(avg_price) * 100.0
-                if loss_pct is not None and loss_pct <= -15 and (tp1p is not None and float(tp1p) < 0.5):
-                    recommendation = "trim"
-                else:
-                    recommendation = "hold"
-            except Exception:
-                recommendation = "hold"
-            actions["trim"] = {"limit": mid, "qty": max(1, qty//2)} if mid is not None else {"qty": max(1, qty//2)}
-            # Invalidation: use EM-based stop on the underlying if available
-            invalidation = None
-            if em_abs and lp:
-                invalidation = round((lp - 0.25*em_abs) if p_type=="call" else (lp + 0.25*em_abs), 2)
-            actions["cut"] = {"underlying_stop": invalidation} if invalidation else {}
-            # Roll candidate: same strike/type, next month (+28d) expiry
-            roll = {}
-            try:
-                from datetime import date, timedelta
-                exd = date.fromisoformat(str(expiry)) + timedelta(days=28)
-                roll_exp = str(exd)
-                roll.update({"target_expiry": roll_exp, "strike": float(strike), "type": p_type})
-            except Exception:
-                pass
-            actions["roll"] = roll
-            # Hedge candidate: ~5% OTM opposite type as protection
-            hedge = {}
-            try:
-                if lp:
-                    h_strike = round(float(lp) * (0.95 if p_type=="call" else 1.05), 2)
-                    hedge = {"type": "put" if p_type=="call" else "call", "strike": h_strike, "expiry": str(expiry)}
-            except Exception:
-                pass
-            actions["hedge"] = hedge
-        else:
-            recommendation = "snapshot_only"
-
-        out = {
-            "position": {
-                "symbol": sym,
-                "type": p_type,
-                "side": p_side,
-                "strike": strike,
-                "expiry": expiry,
-                "qty": qty,
-                "avg_price": avg_price,
-            },
-            "market": {
-                "last": lp,
-                "expected_move": {"abs": em_abs, "rel": em_rel},
-                "levels": levels_payload if (levels_payload and levels_payload.get("ok")) else None,
-            },
-            "contract": match or {},
-            "actions": actions,
-            "recommendation": recommendation,
-            "confidence": confidence,
-        }
-        return {"ok": True, "op": op, "data": out}
 
     if op == "data.snapshot":
         try:

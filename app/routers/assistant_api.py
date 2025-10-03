@@ -710,17 +710,20 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
             data = {"count": len(setups), "setups": setups}
             if fallback_used:
                 data["fallback"] = True
-            # Suggest a next action (pull snapshot) for the top idea when symbols were targeted or we have any result
-            top = (setups[0] if setups else None)
-            if top and isinstance(top, dict) and top.get("symbol"):
-                data["next_action"] = {
-                    "op": "data.snapshot",
-                    "args": {
-                        "symbols": [top["symbol"]],
+
+            if not setups and symbols_list:
+                try:
+                    snap_args = {
+                        "symbols": [symbols_list[0]],
                         "horizon": "intraday",
                         "include": ["options"],
-                    },
-                }
+                    }
+                    snapshot = await _handle_snapshot(snap_args)
+                    data["snapshot"] = snapshot
+                    data["snapshot_args"] = snap_args
+                except Exception:
+                    data["snapshot"] = None
+
             return {"ok": True, "op": op, "data": data}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})

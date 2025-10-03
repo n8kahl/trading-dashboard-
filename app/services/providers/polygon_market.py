@@ -70,6 +70,15 @@ class PolygonMarket:
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
 
+    # ---------- Symbol helpers (indices) ----------
+    def _map_index(self, symbol: str) -> str:
+        s = (symbol or "").upper().strip()
+        if s in {"SPX", "^SPX", "SPXW"}:
+            return "I:SPX"
+        if s in {"NDX", "^NDX"}:
+            return "I:NDX"
+        return s
+
     # ---------- HTTP GET with retry/backoff ----------
     async def _get(self, url: str, params: Dict[str, Any] | None = None, cache_ttl: int = 10) -> Dict[str, Any]:
         key = url + "?" + urlencode(params or {}, doseq=True)
@@ -167,24 +176,36 @@ class PolygonMarket:
 
     # ---------- Prices ----------
     async def last_trade(self, symbol: str) -> Dict[str, Any]:
-        # Try snapshot (fast); fallback to recent daily close
+        # Try stocks snapshot when not an index; for indices, use minute/daily aggs
+        mapped = self._map_index(symbol)
+        if not mapped.startswith("I:"):
+            try:
+                j = await self._get(f"{BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}", None, cache_ttl=8)
+                lt = ((j.get("ticker") or {}).get("lastTrade")) or {}
+                if lt:
+                    return {"symbol": symbol.upper(), "price": lt.get("p"), "t": lt.get("t")}
+            except Exception:
+                pass
+        # Fallback to recent aggs (works for indices and stocks)
         try:
-            j = await self._get(f"{BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}", None, cache_ttl=8)
-            lt = ((j.get("ticker") or {}).get("lastTrade")) or {}
-            if lt:
-                return {"symbol": symbol.upper(), "price": lt.get("p"), "t": lt.get("t")}
+            mins = await self.minute_bars_today(symbol)
+            if mins:
+                return {"symbol": symbol.upper(), "price": mins[-1].get("c"), "t": mins[-1].get("t")}
         except Exception:
             pass
-        now_ms = int(time.time() * 1000)
-        frm = now_ms - 15 * 86_400_000
-        j = await self._get(
-            f"{BASE}/v2/aggs/ticker/{symbol.upper()}/range/1/day/{frm}/{now_ms}",
-            {"adjusted": "true", "sort": "desc", "limit": 2},
-            cache_ttl=30,
-        )
-        res = j.get("results") or []
-        if res:
-            return {"symbol": symbol.upper(), "price": res[0].get("c"), "t": res[0].get("t")}
+        try:
+            now_ms = int(time.time() * 1000)
+            frm = now_ms - 15 * 86_400_000
+            j = await self._get(
+                f"{BASE}/v2/aggs/ticker/{mapped}/range/1/day/{frm}/{now_ms}",
+                {"adjusted": "true", "sort": "desc", "limit": 2},
+                cache_ttl=30,
+            )
+            res = j.get("results") or []
+            if res:
+                return {"symbol": symbol.upper(), "price": res[0].get("c"), "t": res[0].get("t")}
+        except Exception:
+            pass
         return {"symbol": symbol.upper(), "price": None, "t": None}
 
     # ---------- Session bounds helpers ----------
@@ -194,8 +215,9 @@ class PolygonMarket:
         return int(start.timestamp() * 1000), int(now.timestamp() * 1000)
 
     async def _minute_bars_range(self, symbol: str, start_ms: int, end_ms: int, mult: int = 1) -> List[Dict[str, Any]]:
+        mapped = self._map_index(symbol)
         j = await self._get(
-            f"{BASE}/v2/aggs/ticker/{symbol.upper()}/range/{mult}/minute/{start_ms}/{end_ms}",
+            f"{BASE}/v2/aggs/ticker/{mapped}/range/{mult}/minute/{start_ms}/{end_ms}",
             {"adjusted": "true", "sort": "asc", "limit": 50000},
             cache_ttl=8,
         )
@@ -256,8 +278,9 @@ class PolygonMarket:
     async def daily_bars(self, symbol: str, lookback: int = 220) -> List[Dict[str, Any]]:
         now_ms = int(time.time() * 1000)
         frm = now_ms - max(lookback, 220) * 86_400_000
+        mapped = self._map_index(symbol)
         j = await self._get(
-            f"{BASE}/v2/aggs/ticker/{symbol.upper()}/range/1/day/{frm}/{now_ms}",
+            f"{BASE}/v2/aggs/ticker/{mapped}/range/1/day/{frm}/{now_ms}",
             {"adjusted": "true", "sort": "asc", "limit": 1000},
             cache_ttl=30,
         )

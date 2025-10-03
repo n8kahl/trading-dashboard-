@@ -298,7 +298,7 @@ def _chart_url(
             if hits.get("tp2") is not None:
                 plan.append(f"P(TP2) ≈ {int((hits['tp2'] if hits['tp2']<=1 else hits['tp2']/100)*100)}%")
 
-        chart_sym = 'SPY' if _is_spx(sym) else sym
+        chart_sym = 'SPY' if _is_spx(sym) else ('QQQ' if _is_ndx(sym) else sym)
         # Determine state label for chart
         state_label = "Scalp (0DTE)" if horizon == "scalp" else ("Intraday" if horizon == "intraday" else horizon.title())
         q = {
@@ -353,6 +353,10 @@ def _normalize_expiry(raw: Any, hz: str) -> str:
 def _is_spx(sym: str) -> bool:
     s = (sym or "").upper()
     return s in ("SPX", "SPXW", "^SPX")
+
+def _is_ndx(sym: str) -> bool:
+    s = (sym or "").upper()
+    return s in ("NDX", "^NDX")
 
 
 _LEVEL_LABELS = {
@@ -850,7 +854,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
         em_abs = None; em_rel = None
         ctx: Dict[str, Any] = {}
 
-        if "options" in include and poly:
+        if "options" in include and poly and (not (_is_spx(sym) or _is_ndx(sym))):
             try:
                 odte_flag = bool(options_req.get("odte"))
                 topK = int(options_req.get("topK", 6))
@@ -1214,6 +1218,9 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     pass
                 except Exception as e:
                     errs[f"{sym}.options.tradier_fallback"] = f"{type(e).__name__}: {e}"
+            # For index underlyings, prefer Tradier and emit a clear limitation if still empty
+            if (_is_spx(sym) or _is_ndx(sym)) and not picks:
+                ctx["index_note"] = "Index options depend on brokerage provider; no chain returned."
 
         return picks, em_abs, em_rel, ctx
 

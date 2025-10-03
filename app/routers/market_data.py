@@ -90,7 +90,9 @@ def _session_extremes(minute_bars: List[Dict[str, Any]]) -> Dict[str, Optional[f
 
 async def compute_levels(poly, symbol: str) -> Dict[str, Any]:
     sym = (symbol or "").upper()
-    daily = await poly.daily_bars(sym, lookback=4)
+    # Map index underlyings to ETF proxies for reliable intraday levels
+    level_sym = 'SPY' if sym in {"SPX","SPXW","^SPX"} else ('QQQ' if sym in {"NDX","^NDX"} else sym)
+    daily = await poly.daily_bars(level_sym, lookback=4)
     if len(daily) < 2:
         return {"ok": False, "error": "insufficient_daily"}
 
@@ -104,7 +106,7 @@ async def compute_levels(poly, symbol: str) -> Dict[str, Any]:
     piv = pivots_classic(ohlc)
     fibs = fibonacci_levels(ohlc.get("h"), ohlc.get("l"))
 
-    minute_bars, session_day = await _previous_session_minutes(poly, sym)
+    minute_bars, session_day = await _previous_session_minutes(poly, level_sym)
     key_levels = {
         "prev_high": round(ohlc.get("h"), 2) if ohlc.get("h") is not None else None,
         "prev_low": round(ohlc.get("l"), 2) if ohlc.get("l") is not None else None,
@@ -125,6 +127,7 @@ async def compute_levels(poly, symbol: str) -> Dict[str, Any]:
     return {
         "ok": True,
         "symbol": sym,
+        "levels_source": level_sym,
         "prev_day": ohlc,
         "pivots": piv,
         "key_levels": key_levels,

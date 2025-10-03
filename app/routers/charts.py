@@ -347,6 +347,7 @@ async def chart_proposal(
         'TP2': 'null' if tp2 is None else str(tp2),
         'ENTRY_TIME': 'null' if entry_time is None else str(int(entry_time)),
         'STATE': escape(state or ''),
+        'NOTE_BLOCK': note_block,
     })
     return Response(content=html, media_type="text/html; charset=utf-8")
 
@@ -375,7 +376,19 @@ async def tradingview_chart(
             return "null"
 
     theme_key = "dark" if (theme or "").lower() == "dark" else "light"
-    note_html = escape(note)
+    title_text = (note.strip() or f"{sym} plan")
+    def _fmt(v: float | None) -> str:
+        try:
+            return f"{float(v):.2f}"
+        except Exception:
+            return "--"
+    note_items = ''.join([
+        f"<li><strong>Entry</strong> {_fmt(entry)}</li>",
+        f"<li><strong>Stop</strong> {_fmt(sl)}</li>",
+        f"<li><strong>TP1</strong> {_fmt(tp1)}</li>",
+        f"<li><strong>TP2</strong> {_fmt(tp2)}</li>",
+    ])
+    note_block = f"<h4>{escape(title_text)}</h4><ul>{note_items}</ul>"
     bg_overlay = "#111827cc" if theme_key == "dark" else "#ffffffd9"
     text_color = "#f9fafb" if theme_key == "dark" else "#111827"
     html = f"""<!doctype html>
@@ -393,13 +406,12 @@ async def tradingview_chart(
   </head>
   <body>
     <div id='tv_chart'></div>
-    <div id='note'></div>
+    <div id='note'>${NOTE_BLOCK}</div>
     <script>
       const entryVal = {_num(entry)};
       const stopVal = {_num(sl)};
       const tp1Val = {_num(tp1)};
       const tp2Val = {_num(tp2)};
-      const userNote = `{note_html}`;
       const widget = new TradingView.widget({{
         symbol: "{escape(sym)}",
         interval: "{escape(interval)}",
@@ -496,20 +508,6 @@ async def tradingview_chart(
         try {{ chart.createStudy('Moving Average Exponential', false, false, [50]); }} catch(e) {{}}
         try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
 
-        const fmt = (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2));
-        const list = [
-          `<li><strong>Entry</strong> ${{fmt(entryVal)}}</li>`,
-          `<li><strong>Stop</strong> ${{fmt(stopVal)}}</li>`,
-          `<li><strong>TP1</strong> ${{fmt(tp1Val)}}</li>`,
-          `<li><strong>TP2</strong> ${{fmt(tp2Val)}}</li>`
-        ].filter(Boolean).join('');
-        const noteEl = document.getElementById('note');
-        const fallbackTitle = '{escape(sym)} plan';
-        const title = userNote ? userNote : fallbackTitle;
-        noteEl.innerHTML = `
-          <h4>${{title}}</h4>
-          <ul>${{list}}</ul>
-        `;
       }});
     </script>
   </body>

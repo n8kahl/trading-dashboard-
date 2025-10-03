@@ -272,14 +272,17 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
     # choose expiries by horizon
     from datetime import date
     today = date.today()
-    def _pick_date(target_days_min: int, target_days_max: int) -> Optional[str]:
+    def _pick_date(target_days_min: int, target_days_max: int, prefer: Optional[str] = None) -> Optional[str]:
         candidates = []
         for e in exps:
             try:
                 dd = date.fromisoformat(e)
                 days = (dd - today).days
                 if days >= target_days_min and days <= target_days_max:
-                    candidates.append((days, e))
+                    weight = abs(days - ((target_days_min + target_days_max)/2.0))
+                    if prefer and dd.strftime('%b').lower().startswith(prefer.lower()[:3]):
+                        weight *= 0.6
+                    candidates.append((weight, days, e))
             except Exception:
                 continue
         if not candidates:
@@ -290,19 +293,31 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
                     dd = date.fromisoformat(e)
                     days = (dd - today).days
                     if days >= target_days_min:
-                        above.append((days, e))
+                        weight = abs(days - target_days_min)
+                        if prefer and dd.strftime('%b').lower().startswith(prefer.lower()[:3]):
+                            weight *= 0.7
+                        above.append((weight, days, e))
                 except Exception:
                     continue
             if above:
-                return sorted(above, key=lambda x: x[0])[0][1]
+                return sorted(above, key=lambda x: x[0])[0][2]
             return None
-        return sorted(candidates, key=lambda x: x[0])[0][1]
+        return sorted(candidates, key=lambda x: x[0])[0][2]
+
+    leap_prefer_months = ["jan", "mar", "jun", "sep", "dec"]
+    leap_exp = None
+    for pref in leap_prefer_months:
+        leap_exp = _pick_date(300, 720, prefer=pref)
+        if leap_exp:
+            break
+    if not leap_exp:
+        leap_exp = _pick_date(270, 1000)
 
     targets = {
         'scalp': _pick_date(0, 0),          # today
         'intraday': _pick_date(0, 0),       # today
-        'swing': _pick_date(10, 45),        # ~2–6 weeks
-        'leaps': _pick_date(270, 1000),     # 9–36 months
+        'swing': _pick_date(21, 90),        # ~1–3 months
+        'leaps': leap_exp,                  # prefer official LEAP cycle
     }
     out: Dict[str, Any] = {}
     for hz, exp in targets.items():

@@ -606,6 +606,7 @@ class ArgsMarketOverview(BaseModel):
 class ArgsMarketSetups(BaseModel):
     limit: int = Field(default=10, ge=3, le=30)
     include_options: bool = Field(default=True)
+    symbols: Optional[List[str]] = None
 
 
 def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:
@@ -682,7 +683,11 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
         if _scan_top_setups is None:
             raise _bad_request(op, "Setups scanner unavailable", {"import": "app.services.setup_scanner"})
         try:
-            setups = await _scan_top_setups(limit=args.limit, include_options=bool(getattr(args, 'include_options', False)))
+            setups = await _scan_top_setups(
+                limit=args.limit,
+                include_options=bool(getattr(args, 'include_options', False)),
+                symbols=[str(s).upper() for s in (getattr(args, 'symbols', None) or [])]
+            )
             return {"ok": True, "op": op, "data": {"count": len(setups), "setups": setups}}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"ok": False, "error": {"code": type(exc).__name__, "message": str(exc)}})

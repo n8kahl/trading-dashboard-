@@ -438,26 +438,31 @@ def _options_grade(score: Optional[float]) -> Optional[str]:
     return "D"
 
 
-async def scan_top_setups(limit: int = 10, include_options: bool = False) -> List[Dict[str, Any]]:
+async def scan_top_setups(limit: int = 10, include_options: bool = False, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     if PolygonMarket is None:
         return []
-    cache_key = f"top:{limit}:opts:{1 if include_options else 0}"
+    sym_key = ",".join(sorted([s.upper() for s in (symbols or [])])) if symbols else "auto"
+    cache_key = f"top:{limit}:opts:{1 if include_options else 0}:syms:{sym_key}"
     now = time.time()
     cached = _CACHE.get(cache_key)
     if cached and now - cached[0] < _CACHE_TTL:
         return cached[1]
 
     poly = PolygonMarket()
-    try:
-        movers = await poly.top_movers(limit=max(10, limit * 2))
-    except Exception:
-        movers = []
-    symbols = [m.get("symbol") for m in movers if m.get("symbol")]
-    unique_symbols = []
-    for s in symbols:
-        if s not in unique_symbols:
-            unique_symbols.append(s)
-    unique_symbols = unique_symbols[: max(5, limit + 3)]
+    if symbols:
+        unique_symbols = [s.upper() for s in symbols if s]
+        movers = [{"symbol": s} for s in unique_symbols]
+    else:
+        try:
+            movers = await poly.top_movers(limit=max(10, limit * 2))
+        except Exception:
+            movers = []
+        sym_list = [m.get("symbol") for m in movers if m.get("symbol")]
+        unique_symbols: List[str] = []
+        for s in sym_list:
+            if s not in unique_symbols:
+                unique_symbols.append(s)
+        unique_symbols = unique_symbols[: max(5, limit + 3)]
 
     results: List[Dict[str, Any]] = []
     sem = asyncio.Semaphore(5)
@@ -598,13 +603,31 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False) -> Lis
             if not tradable and price < 5:
                 continue  # skip illiquid low price names
 
-        # Build chart link
+        # Build chart link with simple entry/stop markers from timeframe signal
         try:
             note = quote(item.get('setup') or '')
         except Exception:
             note = ''
+        entry = None
+        sl = None
+        try:
+            tf = item.get('timeframes') or {}
+            h1 = tf.get('h1') or {}
+            h4 = tf.get('h4') or {}
+            # Prefer 1H prev_high for breakout/retest; else 4H
+            e = h1.get('prev_high') or h4.get('prev_high')
+            if isinstance(e, (int, float)):
+                entry = round(float(e), 2)
+                sl = round(entry * 0.996, 2)  # ~0.4% buffer
+        except Exception:
+            entry = sl = None
         if item.get('symbol'):
-            item['chart_url'] = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}"
+            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}"
+            if entry is not None:
+                url += f"&entry={entry}"
+            if sl is not None:
+                url += f"&sl={sl}"
+            item['chart_url'] = url
         else:
             item['chart_url'] = None
 

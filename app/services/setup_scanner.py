@@ -46,6 +46,9 @@ class _TimeframeState:
 _CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _CACHE_TTL = 45  # seconds
 _PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"
+_BLUE_CHIP = {
+    "SPY", "QQQ", "IWM", "DIA", "AAPL", "MSFT", "GOOGL", "GOOG", "NVDA", "META", "TSLA", "AMD", "AMZN", "NFLX"
+}
 
 
 def _tf_state(bars: List[Dict[str, Any]], current: Optional[float], breakout_buffer: float = 0.0025) -> _TimeframeState:
@@ -716,13 +719,24 @@ async def scan_top_setups(
             if price < 3:
                 gates_missed.append('price')
             pref = item.get('preferred_option') if include_options else None
+            allow_grade_c = False
             if include_options:
                 if not pref:
                     gates_missed.append('options_missing')
                 else:
                     grade = pref.get('grade')
-                    if grade not in {'A','B'}:
-                        gates_missed.append('options_grade')
+                    if grade not in {'A', 'B'}:
+                        if grade == 'C':
+                            try:
+                                oi_val = float(pref.get('oi') or 0.0)
+                            except Exception:
+                                oi_val = 0.0
+                            if item.get('symbol') in _BLUE_CHIP and oi_val >= 5000:
+                                allow_grade_c = True
+                            else:
+                                gates_missed.append('options_grade')
+                        else:
+                            gates_missed.append('options_grade')
                     sp = pref.get('spread_pct')
                     if sp is None:
                         b = pref.get('bid'); a = pref.get('ask')
@@ -736,13 +750,21 @@ async def scan_top_setups(
                             gates_missed.append('spread')
                     except Exception:
                         gates_missed.append('spread')
+            # Only surface fallback if options are usable (grade A/B, or grade C on blue chips) when include_options is True
+            if include_options:
+                if 'options_missing' in gates_missed:
+                    continue
+                grade_miss = 'options_grade' in gates_missed
+                spread_miss = 'spread' in gates_missed
+                if grade_miss and not allow_grade_c:
+                    continue
+                if spread_miss:
+                    continue
+                if grade_miss and allow_grade_c:
+                    gates_missed.remove('options_grade')
             clone = dict(item)
             clone['quality_gate'] = False
             clone['gate_misses'] = gates_missed
-            # Only surface fallback if options are usable (grade A/B, spreads reasonable) when include_options is True
-            if include_options:
-                if 'options_missing' in gates_missed or 'options_grade' in gates_missed or 'spread' in gates_missed:
-                    continue
             fallback.append(clone)
         ranked = sorted(fallback, key=lambda x: x.get('score', 0), reverse=True)[:max(1, min(limit, 3))]
 

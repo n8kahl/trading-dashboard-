@@ -182,6 +182,8 @@ This document tracks code and docs changes so work can be resumed easily in a ne
     - Files: `app/services/setup_scanner.py`, `app/services/providers/tradier_chain.py`, `app/routers/setups.py`, `app/routers/assistant_api.py`
   - Options scoring pulls Tradier expirations, near-ATM contracts, performs Polygon NBBO sampling, assigns A/B/C grades, and surfaces a preferred contract per horizon. Confidence grades (High/Moderate/Cautious) and clickable TradingView links are included per setup.
   - Trade plan output now references expected-move bands instead of recycled TP probabilities for clearer guidance.
+  - Targeted scans (symbols=) now guarantee best-available guidance: if strict quality gates reject all ideas, the API returns the highest-ranked fallback (A/B grades; grade C allowed only for liquid blue chips) and, when nothing survives, auto-fetches an intraday snapshot to build a plan.
+    - Files: `app/services/setup_scanner.py`, `app/routers/assistant_api.py`
 
 - Commits
   - `ab78d79` Index support: map SPX/NDX to Polygon indices (I:SPX/I:NDX); prefer Tradier chains for index options; map charts/levels to SPY/QQQ

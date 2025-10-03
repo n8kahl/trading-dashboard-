@@ -9,6 +9,7 @@ from app.routers.diag import router as diag_router  # <-- make sure this exists
 from app.routers.hedge import router as hedge_router
 from app.routers.market import router as market_router
 from app.routers.market_data import router as market_data_router
+from app.routers.setups import router as setups_router
 from app.routers.storage import router as storage_router
 from app.services.premarket_ingest import run_on_startup as premarket_ingest_start
 from app.services.premarket_ingest import run_scheduler_on_startup as premarket_schedule_start
@@ -41,6 +42,7 @@ app.include_router(assistant_router)
 app.include_router(hedge_router)
 app.include_router(market_router)
 app.include_router(market_data_router)
+app.include_router(setups_router)
 app.include_router(charts_router)
 app.include_router(storage_router)
 

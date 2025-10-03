@@ -348,3 +348,91 @@ async def chart_proposal(
         'ENTRY_TIME': 'null' if entry_time is None else str(int(entry_time)),
     })
     return Response(content=html, media_type="text/html; charset=utf-8")
+
+
+@router.get("/tradingview")
+async def tradingview_chart(
+    symbol: str,
+    interval: str = Query("15"),
+    entry: float | None = None,
+    sl: float | None = None,
+    tp1: float | None = None,
+    tp2: float | None = None,
+    theme: str = Query("dark"),
+    note: str = Query(""),
+) -> Response:
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return Response(content="Symbol required", media_type="text/plain", status_code=400)
+
+    def _num(val: float | None) -> str:
+        if val is None:
+            return "null"
+        try:
+            return repr(round(float(val), 4))
+        except Exception:
+            return "null"
+
+    theme_key = "dark" if (theme or "").lower() == "dark" else "light"
+    note_html = escape(note)
+    bg_overlay = "#111827cc" if theme_key == "dark" else "#ffffffd9"
+    text_color = "#f9fafb" if theme_key == "dark" else "#111827"
+    html = f"""<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8'/>
+    <meta name='viewport' content='width=device-width, initial-scale=1'/>
+    <title>{sym} Play – TradingView</title>
+    <script type='text/javascript' src='https://s3.tradingview.com/tv.js'></script>
+    <style>
+      html, body {{ margin:0; padding:0; height:100%; background:{'#0d1117' if theme_key == 'dark' else '#ffffff'}; }}
+      #tv_chart {{ width:100%; height:100%; position:absolute; inset:0; }}
+      #note {{ position:absolute; left:12px; top:12px; background:{bg_overlay}; color:{text_color}; padding:10px 12px; border-radius:8px; font:13px/1.45 -apple-system,Segoe UI,Roboto; max-width:min(360px, 90vw); box-shadow:0 8px 16px rgba(15,23,42,0.3); }}
+    </style>
+  </head>
+  <body>
+    <div id='tv_chart'></div>
+    {"" if not note_html else f"<div id='note'>{note_html}</div>"}
+    <script>
+      const widget = new TradingView.widget({{
+        symbol: "{escape(sym)}",
+        interval: "{escape(interval)}",
+        timezone: "exchange",
+        theme: "{theme_key}",
+        style: "1",
+        locale: "en",
+        container_id: "tv_chart",
+        autosize: true,
+        hide_side_toolbar: false,
+        hide_legend: false,
+        save_image: false,
+        allow_symbol_change: true,
+        studies: [],
+      }});
+
+      widget.onChartReady(function() {{
+        const chart = widget.activeChart();
+        const lines = [
+          {{ price: {_num(entry)}, text: 'Entry', color: '#22c55e', lineWidth: 2 }},
+          {{ price: {_num(sl)}, text: 'Stop', color: '#ef4444', lineWidth: 2 }},
+          {{ price: {_num(tp1)}, text: 'TP1', color: '#2563eb', lineWidth: 2 }},
+          {{ price: {_num(tp2)}, text: 'TP2', color: '#2563eb', lineWidth: 2, lineStyle: 2 }}
+        ];
+        lines.forEach(cfg => {{
+          if (cfg.price === null) return;
+          const line = chart.createHorizontalLine({{
+            price: cfg.price,
+            text: cfg.text,
+            color: cfg.color,
+            lineWidth: cfg.lineWidth || 1,
+            lineStyle: cfg.lineStyle || 0,
+          }});
+          if (line && cfg.text) {{
+            line.setText(cfg.text);
+          }}
+        }});
+      }});
+    </script>
+  </body>
+</html>"""
+    return Response(content=html, media_type="text/html; charset=utf-8")

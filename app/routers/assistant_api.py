@@ -427,6 +427,129 @@ def _stop_near(entry: float, stop: float, direction: str, levels: List[Tuple[str
     return label, price
 
 
+async def _market_internals_summary(poly) -> Optional[Dict[str, Any]]:
+    """Fetch a few market-internals proxies (advancers/decliners, TICK, ADD) and distil a signal."""
+    if not poly:
+        return None
+
+    symbol_map = {
+        "advancers": "ADVN",
+        "decliners": "DECL",
+        "tick": "TICK",
+        "add": "ADD",
+    }
+
+    async def _safe_last(sym: str):
+        try:
+            lt = await poly.last_trade(sym)
+            if lt and lt.get("price") is not None:
+                return float(lt.get("price"))
+        except Exception:
+            return None
+        return None
+
+    results = await asyncio.gather(*[_safe_last(ticker) for ticker in symbol_map.values()], return_exceptions=True)
+    internals: Dict[str, Any] = {}
+    for (label, _), value in zip(symbol_map.items(), results):
+        if isinstance(value, Exception):
+            internals[label] = {"value": None, "error": f"{type(value).__name__}: {value}"}
+        else:
+            internals[label] = {"value": value}
+
+    def _val(name: str) -> Optional[float]:
+        entry = internals.get(name) or {}
+        v = entry.get("value")
+        try:
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    adv = _val("advancers")
+    dec = _val("decliners")
+    tick_val = _val("tick")
+    add_line = _val("add")
+
+    notes: List[str] = []
+    score = 0
+
+    if adv is not None and dec is not None and (adv + dec) > 0:
+        breadth_ratio = adv / (adv + dec)
+        internals["breadth_ratio"] = round(breadth_ratio, 3)
+        adv_minus_dec = adv - dec
+        internals["adv_minus_decliners"] = round(adv_minus_dec, 0)
+        if breadth_ratio >= 0.62:
+            score += 1
+            notes.append("Breadth > 0.62 (buyers broadly participating)")
+        elif breadth_ratio <= 0.38:
+            score -= 1
+            notes.append("Breadth < 0.38 (decliners dominating)")
+        if abs(adv_minus_dec) >= 1200:
+            if adv_minus_dec > 0:
+                score += 1
+                notes.append("Advancers outpacing decliners by >1.2k")
+            else:
+                score -= 1
+                notes.append("Decliners outpacing advancers by >1.2k")
+    else:
+        internals["breadth_ratio"] = None
+
+    if tick_val is not None:
+        internals["tick"] = round(tick_val, 0)
+        if tick_val >= 600:
+            score += 1
+            notes.append("TICK > +600 (aggressive buying pressure)")
+        elif tick_val <= -600:
+            score -= 1
+            notes.append("TICK < -600 (aggressive selling pressure)")
+        elif tick_val <= -300:
+            score -= 0.5
+            notes.append("TICK < -300 (selling bias)")
+        elif tick_val >= 300:
+            score += 0.5
+            notes.append("TICK > +300 (buying bias)")
+    else:
+        internals["tick"] = None
+
+    if add_line is not None:
+        internals["add_line"] = round(add_line, 0)
+
+    # Sector breadth via overview (best-effort)
+    try:
+        overview = await market_overview_route(indices="SPY,QQQ", sectors="XLK,XLV,XLF,XLE,XLY,XLP,XLI,XLB,XLRE,XLU,XLC")
+        sectors = (overview or {}).get("sectors") or {}
+        up = [sym for sym, payload in sectors.items() if isinstance(payload, dict) and isinstance(payload.get("change_pct"), (int, float)) and payload.get("change_pct", 0) > 0]
+        down = [sym for sym, payload in sectors.items() if isinstance(payload, dict) and isinstance(payload.get("change_pct"), (int, float)) and payload.get("change_pct", 0) < 0]
+        internals["sectors_up"] = len(up)
+        internals["sectors_down"] = len(down)
+        if len(up) + len(down) >= 6:
+            breadth_diff = len(up) - len(down)
+            if breadth_diff >= 4:
+                score += 1
+                notes.append("Major sectors tilting risk-on")
+            elif breadth_diff <= -4:
+                score -= 1
+                notes.append("Major sectors tilting risk-off")
+    except Exception:
+        pass
+
+    bias = "balanced"
+    if score >= 2:
+        bias = "risk_on"
+    elif score <= -2:
+        bias = "risk_off"
+    elif score > 0:
+        bias = "slight_risk_on"
+    elif score < 0:
+        bias = "slight_risk_off"
+
+    internals["score"] = round(score, 2)
+    internals["bias"] = bias
+    if notes:
+        internals["notes"] = notes
+
+    return internals
+
+
 # ---------- API Schemas ----------
 PRIMARY_OPS: Tuple[str, ...] = (
     "diag.health",
@@ -829,6 +952,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
     # init providers (non-fatal)
     poly = PolygonMarket() if PolygonMarket else None
     tradier = (TradierMarket or TradierClient)() if (TradierMarket or TradierClient) else None
+    market_internals_cache: Optional[Dict[str, Any]] = None
 
     async def last_price(sym: str) -> Optional[float]:
         # Try Tradier then Polygon (non-fatal)
@@ -854,20 +978,29 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
         em_abs = None; em_rel = None
         ctx: Dict[str, Any] = {}
 
+        # Normalize options request knobs once for both Polygon and Tradier paths
+        odte_flag = bool(options_req.get("odte"))
+        try:
+            topK = int(options_req.get("topK", 6))
+        except Exception:
+            topK = 6
+        try:
+            maxSpreadPct = float(options_req.get("maxSpreadPct", 8 if odte_flag else 12))
+        except Exception:
+            maxSpreadPct = 12.0
+        greeks = bool(options_req.get("greeks", True))
+        # Base expiry selection
+        expiry = _normalize_expiry(options_req.get("expiry", ("today" if odte_flag else "auto")), horizon)
+        # Indices mode: bias to ODTE for intraday when no explicit expiry was provided
+        try:
+            if (_is_spx(sym) or _is_ndx(sym)) and horizon == "intraday" and not options_req.get("expiry"):
+                expiry = _normalize_expiry("today", horizon)
+                odte_flag = True
+        except Exception:
+            pass
+
         if "options" in include and poly and (not (_is_spx(sym) or _is_ndx(sym))):
             try:
-                odte_flag = bool(options_req.get("odte"))
-                topK = int(options_req.get("topK", 6))
-                maxSpreadPct = float(options_req.get("maxSpreadPct", 8 if odte_flag else 12))
-                greeks = bool(options_req.get("greeks", True))
-                expiry = _normalize_expiry(options_req.get("expiry", ("today" if odte_flag else "auto")), horizon)
-                # Indices mode: bias to ODTE for intraday
-                try:
-                    if (_is_spx(sym) or _is_ndx(sym)) and horizon == "intraday" and not options_req.get("expiry"):
-                        expiry = _normalize_expiry("today", horizon)
-                        odte_flag = True
-                except Exception:
-                    pass
                 req = {"topK": topK, "maxSpreadPct": maxSpreadPct, "greeks": greeks, "expiry": expiry}
 
                 # Use Polygon snapshot; provider now supports snapshot_chain alias
@@ -1095,14 +1228,16 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                 pass
 
                         # Short NBBO sampling to estimate spread stability and refresh quotes
-                        async def _nbbo_sample(picks: List[Dict[str, Any]], samples: int = 2, interval: float = 0.35):
+                        async def _nbbo_sample(picks: List[Dict[str, Any]], samples: int = 2, interval: float = 0.35) -> Optional[Dict[str, Any]]:
                             symbols = [p.get("symbol") for p in picks if p.get("symbol")]
                             if not symbols:
-                                return
+                                return None
                             # Build symbol -> index mapping and storage
                             idx = {p.get("symbol"): i for i, p in enumerate(picks) if p.get("symbol")}
                             bids: Dict[str, List[float]] = {s: [] for s in symbols}
                             asks: Dict[str, List[float]] = {s: [] for s in symbols}
+                            mids: Dict[str, List[float]] = {s: [] for s in symbols}
+                            spreads: Dict[str, List[float]] = {s: [] for s in symbols}
                             for _ in range(samples):
                                 qs = await asyncio.gather(*[
                                     _maybe_await(poly.option_quote(s)) for s in symbols
@@ -1112,6 +1247,12 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                         b = q.get("bid"); a = q.get("ask")
                                         if b is not None: bids[s].append(b)
                                         if a is not None: asks[s].append(a)
+                                        if b is not None and a is not None and a > 0:
+                                            try:
+                                                mids[s].append((float(b) + float(a)) / 2.0)
+                                                spreads[s].append(max(0.0, float(a) - float(b)))
+                                            except Exception:
+                                                pass
                                         # refresh latest nbbo fields on pick
                                         i = idx.get(s)
                                         if i is not None:
@@ -1120,7 +1261,14 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                             sp = q.get("spread_pct")
                                             if sp is not None: picks[i]["spread_pct"] = sp
                                 await asyncio.sleep(interval)
-                            # Compute spread stability and update tradeability again
+                            # Compute spread stability, tradeability, and distilled order-flow
+                            summary: Dict[str, Any] = {
+                                "symbols": {},
+                                "bias_counts": {"buyers": 0, "sellers": 0, "neutral": 0},
+                                "avg_score": None,
+                                "dominant_bias": None,
+                            }
+                            scores: List[float] = []
                             for s in symbols:
                                 i = idx.get(s)
                                 if i is None:
@@ -1132,10 +1280,98 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                         picks[i]["tradeability"] = tradeability_score(picks[i], horizon=horizon)
                                     except Exception:
                                         pass
+                                bid_vals = bids.get(s) or []
+                                ask_vals = asks.get(s) or []
+                                mid_vals = mids.get(s) or []
+                                spread_vals = spreads.get(s) or []
+                                def _first_last(vals: List[float]) -> Tuple[Optional[float], Optional[float]]:
+                                    if not vals:
+                                        return None, None
+                                    return vals[0], vals[-1]
+                                bid_start, bid_end = _first_last(bid_vals)
+                                ask_start, ask_end = _first_last(ask_vals)
+                                mid_start, mid_end = _first_last(mid_vals)
+                                spread_start, spread_end = _first_last(spread_vals)
+                                mid_diff = None
+                                rel_mid = None
+                                if mid_start is not None and mid_end is not None:
+                                    mid_diff = mid_end - mid_start
+                                    base = abs(mid_start) if abs(mid_start) > 1e-4 else 1.0
+                                    rel_mid = mid_diff / base
+                                bid_delta = None
+                                if bid_start is not None and bid_end is not None:
+                                    bid_delta = bid_end - bid_start
+                                ask_delta = None
+                                if ask_start is not None and ask_end is not None:
+                                    ask_delta = ask_start - ask_end  # ask coming in (lower) helps buyers
+                                spread_delta = None
+                                if spread_start is not None and spread_end is not None:
+                                    spread_delta = spread_end - spread_start
+
+                                score = 0.0
+                                components: List[float] = []
+                                if rel_mid is not None:
+                                    components.append(max(-1.0, min(1.0, rel_mid)))
+                                if bid_delta is not None and bid_start not in (None, 0):
+                                    try:
+                                        components.append(max(-1.0, min(1.0, (bid_delta / max(0.05, abs(bid_start))) * 0.5)))
+                                    except Exception:
+                                        pass
+                                if ask_delta is not None and ask_start not in (None, 0):
+                                    try:
+                                        components.append(max(-1.0, min(1.0, (ask_delta / max(0.05, abs(ask_start))) * 0.5)))
+                                    except Exception:
+                                        pass
+                                if spread_delta is not None and spread_start is not None:
+                                    try:
+                                        components.append(max(-1.0, min(1.0, (-(spread_delta) / max(0.05, spread_start + 0.01)) * 0.3)))
+                                    except Exception:
+                                        pass
+                                if components:
+                                    score = sum(components) / len(components)
+                                score = max(-1.0, min(1.0, score))
+                                bias = "neutral"
+                                if score >= 0.18:
+                                    bias = "buyers"
+                                elif score <= -0.18:
+                                    bias = "sellers"
+                                summary["bias_counts"][bias] += 1
+                                scores.append(score)
+                                picks[i]["order_flow_score"] = round(score, 3)
+                                picks[i]["order_flow_bias"] = bias
+                                if mid_diff is not None:
+                                    picks[i]["order_flow_mid_change"] = round(mid_diff, 4)
+                                if bid_delta is not None:
+                                    picks[i]["order_flow_bid_change"] = round(bid_delta, 4)
+                                if ask_delta is not None:
+                                    picks[i]["order_flow_ask_change"] = round(ask_delta, 4)
+                                if spread_delta is not None:
+                                    picks[i]["order_flow_spread_change"] = round(spread_delta, 4)
+                                summary["symbols"][s] = {
+                                    "score": round(score, 3),
+                                    "bias": bias,
+                                    "mid_change": round(mid_diff, 4) if mid_diff is not None else None,
+                                    "bid_change": round(bid_delta, 4) if bid_delta is not None else None,
+                                    "ask_change": round(ask_delta, 4) if ask_delta is not None else None,
+                                    "spread_change": round(spread_delta, 4) if spread_delta is not None else None,
+                                    "samples": len(mid_vals) or len(bid_vals) or len(ask_vals),
+                                }
+                            if scores:
+                                avg_score = sum(scores) / len(scores)
+                                summary["avg_score"] = round(avg_score, 3)
+                                try:
+                                    dominant_bias = max(summary["bias_counts"].items(), key=lambda kv: kv[1])
+                                    if dominant_bias[1] and dominant_bias[1] >= max(2, len(scores) // 2 + 1):
+                                        summary["dominant_bias"] = dominant_bias[0]
+                                except Exception:
+                                    pass
+                            return summary
 
                         # Limit sampling scope to avoid latency explosion
                         try:
-                            await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                            nbbo_snapshot = await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                            if nbbo_snapshot:
+                                ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
                         except Exception:
                             pass
                         # Tighten gates and rank for ODTE/scalp
@@ -1254,7 +1490,9 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                             pass
                                 # NBBO sampling on fallback too
                                 try:
-                                    await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                                    nbbo_snapshot = await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                                    if nbbo_snapshot:
+                                        ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
                                 except Exception:
                                     pass
                                 # Tighten quality gates for ODTE/scalp
@@ -1435,6 +1673,17 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
             ctx_ref["prev_day_levels"] = prev_day_data
         if levels_session:
             ctx_ref["levels_session_utc"] = levels_session
+        if poly:
+            try:
+                if market_internals_cache is None:
+                    market_internals_cache = await _market_internals_summary(poly)
+            except Exception:
+                pass
+        if market_internals_cache:
+            try:
+                ctx_ref["market_internals"] = dict(market_internals_cache)
+            except Exception:
+                ctx_ref["market_internals"] = market_internals_cache
         try:
             if levels_payload:
                 src = levels_payload.get("levels_source")

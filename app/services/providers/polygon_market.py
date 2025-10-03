@@ -289,6 +289,72 @@ class PolygonMarket:
             for b in (j.get("results") or [])
         ]
 
+    async def aggregate_bars(self, symbol: str, multiplier: int, timespan: str, lookback_days: int = 5) -> List[Dict[str, Any]]:
+        """Generic aggregates (e.g., 60-minute, 240-minute)."""
+        now_ms = int(time.time() * 1000)
+        frm = now_ms - max(1, lookback_days) * 86_400_000
+        mapped = self._map_index(symbol)
+        j = await self._get(
+            f"{BASE}/v2/aggs/ticker/{mapped}/range/{multiplier}/{timespan}/{frm}/{now_ms}",
+            {"adjusted": "true", "sort": "asc", "limit": 5000},
+            cache_ttl=15,
+        )
+        return [
+            {"t": b.get("t"), "o": b.get("o"), "h": b.get("h"), "l": b.get("l"), "c": b.get("c"), "v": b.get("v")}
+            for b in (j.get("results") or [])
+        ]
+
+    async def top_movers(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Return combined top gainers/losers ranked by absolute % move."""
+        gain_url = f"{BASE}/v2/snapshot/locale/us/markets/stocks/gainers"
+        lose_url = f"{BASE}/v2/snapshot/locale/us/markets/stocks/losers"
+
+        async def _fetch(url: str) -> List[Dict[str, Any]]:
+            try:
+                j = await self._get(url, None, cache_ttl=20)
+                items = j.get("tickers") or []
+                return items if isinstance(items, list) else []
+            except Exception:
+                return []
+
+        gainers, losers = await asyncio.gather(_fetch(gain_url), _fetch(lose_url))
+        combined: List[Dict[str, Any]] = []
+        for item in gainers + losers:
+            if not isinstance(item, dict):
+                continue
+            sym = item.get("ticker")
+            if not sym:
+                continue
+            change_pct = item.get("todaysChangePerc")
+            change = item.get("todaysChange")
+            last = ((item.get("lastTrade")) or {}).get("p") or (item.get("lastQuote") or {}).get("p") or item.get("close")
+            volume = item.get("volume") or ((item.get("day") or {}).get("volume"))
+            combined.append({
+                "symbol": sym,
+                "change_pct": float(change_pct) if change_pct is not None else None,
+                "change": float(change) if change is not None else None,
+                "last": float(last) if last is not None else None,
+                "volume": float(volume) if volume is not None else None,
+            })
+
+        def _score(row: Dict[str, Any]) -> float:
+            try:
+                cp = abs(float(row.get("change_pct") or 0.0))
+                vol = float(row.get("volume") or 0.0)
+                return cp * 100.0 + min(vol / 1_000_000.0, 25.0)
+            except Exception:
+                return 0.0
+
+        unique: Dict[str, Dict[str, Any]] = {}
+        for row in combined:
+            sym = row["symbol"]
+            current = unique.get(sym)
+            if current is None or _score(row) > _score(current):
+                unique[sym] = row
+
+        ranked = sorted(unique.values(), key=_score, reverse=True)[:max(1, limit)]
+        return ranked
+
     # ---------- Options snapshot (v3) with pagination + OCC normalization ----------
     def _opt_symbol(self, r: Dict[str, Any], underlying: str) -> Optional[str]:
         sym = (r.get("ticker")

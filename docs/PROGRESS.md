@@ -149,3 +149,52 @@ This document tracks code and docs changes so work can be resumed easily in a ne
 - Feature: In‑process rate limiting
   - Added `app/services/rate_limiter.py` (token bucket) with env knobs `POLYGON_API_RATE`, `TRADIER_API_RATE` (fallback `POLL_API_RATE`).
   - Integrated into Polygon `_get`/`option_quote` and Tradier `quote_last`/`options_chain`.
+
+## 2025-10-02
+
+- Index support and ODTE quality gates
+  - Polygon indices: map `SPX→I:SPX` and `NDX→I:NDX` for aggs (minute/daily). Robust `last_price` falls back to minutes/dailies when snapshots don’t apply.
+    - File: `app/services/providers/polygon_market.py`
+  - Index options: prefer Tradier chains for SPX/NDX; skip Polygon option‑chain attempts for indices. If no chain is available, surface a precise limitation note instead of generic filler.
+    - File: `app/routers/assistant_api.py`
+  - Charts & levels: SPX charts map to SPY; NDX charts map to QQQ.
+    - File: `app/routers/assistant_api.py`
+  - Levels via ETF proxy: SPX/NDX levels computed via SPY/QQQ proxy and labeled with `levels_source` plus `index_proxy_note` for the model/UI.
+    - Files: `app/routers/market_data.py` and assistant API context wiring
+- ODTE quality gate: after NBBO sampling, `options.top` is tightened to require `spread_stability ≥ 0.6` when available to prevent poor 0DTE fills.
+  - File: `app/routers/assistant_api.py`
+- Intraday index bias: for index + intraday with no expiry provided, automatically bias to today’s expiry (`odte`) for focused picks.
+  - File: `app/routers/assistant_api.py`
+- Order-flow tape & market internals:
+  - Distilled order-flow score per option pick from NBBO sampling (`order_flow_score`, `order_flow_bias`, deltas) plus aggregate summary under `context.order_flow`.
+    - File: `app/routers/assistant_api.py`
+  - Market internals panel (`context.market_internals`) showing adv/decl breadth, TICK bias, sector tilt, and notes/bias score for quick sizing guidance.
+    - File: `app/routers/assistant_api.py`
+- Setups board + TradingView links
+  - `scan_top_setups()` ranks multi timeframe breakout/retest candidates across top movers (daily, 4h, 1h alignment) with liquidity and rVol adjustments.
+    - Files: `app/services/providers/polygon_market.py`, `app/services/setup_scanner.py`
+  - New endpoint `GET /api/v1/market/setups?limit=10` serving top-ranked ideas with per-timeframe notes.
+    - File: `app/routers/setups.py`, wired in `app/main.py`
+  - Added `/charts/tradingview` page generating shareable TradingView widgets with entry/stop/target overlays.
+    - File: `app/routers/charts.py`
+
+- Commits
+  - `ab78d79` Index support: map SPX/NDX to Polygon indices (I:SPX/I:NDX); prefer Tradier chains for index options; map charts/levels to SPY/QQQ
+  - `6d33b56` Enhancements: index proxy notes, ODTE stability gate, intraday index bias, and Polygon index mapping
+
+- How to test quickly
+  - Providers: `{"op":"diag.providers","args":{}}` → confirm `polygon_key_present`, `tradier_token_present`.
+  - SPX 0DTE snapshot:
+    - `{"op":"data.snapshot","args":{"symbols":["SPX"],"horizon":"intraday","include":["options"],"options":{"odte":true,"expiry":"today","topK":8,"maxSpreadPct":12,"greeks":true}}}`
+    - Expect: `options.top` with human‑readable contracts, `expected_move`, `key_levels` (via SPY), `fibonacci`, `chart_url` (SPY), `hit_probabilities`; if no chain available, a clear "index options depend on brokerage provider" note.
+  - NDX 0DTE snapshot similarly (levels via QQQ). Verify ODTE gates: picks either show `spread_stability ≥ 0.6` or are filtered out.
+
+- Prompt additions (guidance to LLM)
+  - For SPX/NDX: require `data.snapshot` with `{"options":{"odte":true,"expiry":"today"}}`.
+  - If `options.top[]` is empty or index note present, return that limitation only; ask if SPY/QQQ proxy is acceptable; do not draft a generic plan.
+  - When context contains `index_proxy_note`, reference it in Key Levels (e.g., “Levels via SPY proxy”).
+
+- Optional next steps (Polygon enhancements)
+  - Smarter ODTE ranking: prioritize by (a) `spread_stability`, (b) delta closeness to 0.45, (c) `iv_percentile` mid‑range, (d) `vol_oi_ratio`. Expose composite score to the LLM.
+  - Intraday statistical bands: add server‑side minute‑VWAP σ bands and recent RVOL percentile to context; boost confidence when confluence with TP/levels occurs.
+  - Event overlay: integrate earnings/macro timestamps into context and suppress plans that collide with imminent high‑impact events unless explicitly asked.

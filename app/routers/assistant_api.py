@@ -26,7 +26,8 @@ router = APIRouter(prefix="/api/v1")
 from importlib import import_module as _im
 import os, re
 from urllib.parse import urlencode
-from datetime import datetime
+from datetime import datetime, time as _time
+from zoneinfo import ZoneInfo as _ZoneInfo
 from app.engine.risk_flags import compute_risk_flags
 
 PolygonMarket = None
@@ -78,6 +79,17 @@ async def _maybe_await(v):
     if inspect.isawaitable(v):
         return await v
     return v
+
+def _market_is_open_now() -> bool:
+    try:
+        tz = _ZoneInfo("America/New_York")
+        now = datetime.now(tz)
+        if now.weekday() >= 5:
+            return False
+        t = now.time()
+        return (_time(9,30) <= t <= _time(16,0))
+    except Exception:
+        return True
 
 _OCC_RE = re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 
@@ -707,6 +719,15 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                 )
                 fallback_used = True
 
+            # After-hours bias: prefer swing/leaps and include a compact macro snapshot
+            after_hours = not _market_is_open_now()
+            if after_hours and setups:
+                def _h_order(item):
+                    h = str(((item or {}).get('preferred_option') or {}).get('horizon') or '').lower()
+                    order = {'swing': 0, 'leaps': 1, 'intraday': 2, 'scalp': 3}
+                    return order.get(h, 99)
+                setups = sorted(setups, key=_h_order)
+
             data = {"count": len(setups), "setups": setups}
             if fallback_used:
                 data["fallback"] = True
@@ -723,6 +744,18 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                     data["snapshot_args"] = snap_args
                 except Exception:
                     data["snapshot"] = None
+
+            if after_hours:
+                data["after_hours"] = True
+                try:
+                    mo = await market_overview_route(indices="SPY,QQQ", sectors="XLK,XLV,XLF,XLE,XLY,XLP,XLI,XLB,XLRE,XLU,XLC")
+                    if mo and bool(mo.get("ok", True)):
+                        data["macro"] = {
+                            "indices": {k: (mo.get("indices") or {}).get(k) for k in ("SPY","QQQ")},
+                            "leaders": mo.get("leaders"),
+                        }
+                except Exception:
+                    pass
 
             return {"ok": True, "op": op, "data": data}
         except Exception as exc:

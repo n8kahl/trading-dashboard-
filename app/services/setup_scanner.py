@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -602,7 +603,10 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False) -> Lis
             note = quote(item.get('setup') or '')
         except Exception:
             note = ''
-        item['chart_url'] = f"/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}" if item.get('symbol') else None
+        if item.get('symbol'):
+            item['chart_url'] = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}"
+        else:
+            item['chart_url'] = None
 
         item['score'] = confidence_pct
         item['confidence'] = confidence_pct
@@ -613,6 +617,64 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False) -> Lis
 
         processed.append(item)
 
-    ranked = sorted(processed, key=lambda x: x.get("score", 0), reverse=True)[:limit]
+    ranked_all = sorted(processed, key=lambda x: x.get("score", 0), reverse=True)
+
+    filtered: List[Dict[str, Any]] = []
+    for item in ranked_all:
+        if item.get('confidence', 0) < 70:
+            continue
+        price = _safe_float(item.get('price')) or 0.0
+        if price < 3:
+            continue
+        pref = item.get('preferred_option') if include_options else None
+        if include_options:
+            if not pref:
+                continue
+            grade = pref.get('grade')
+            bid = pref.get('bid'); ask = pref.get('ask'); spread_pct = pref.get('spread_pct')
+            if grade not in {'A','B'}:
+                continue
+            if bid is None or ask is None:
+                continue
+            try:
+                if spread_pct is None and ask > 0:
+                    spread_pct = ((ask - bid)/ask)*100.0
+                if spread_pct is None or float(spread_pct) > 12.0:
+                    continue
+            except Exception:
+                continue
+            try:
+                oi = float(pref.get('oi') or 0.0)
+            except Exception:
+                oi = 0.0
+            try:
+                vol = float(pref.get('volume') or 0.0)
+            except Exception:
+                vol = 0.0
+            if oi < 200 and vol < 200:
+                continue
+        filtered.append(item)
+
+    # ensure diverse horizons
+    priority_order = ['scalp', 'intraday', 'swing', 'leaps']
+    selected: List[Dict[str, Any]] = []
+    used_horizons = set()
+    for hz in priority_order:
+        for item in filtered:
+            pref = item.get('preferred_option')
+            if pref and pref.get('horizon') == hz and hz not in used_horizons:
+                selected.append(item)
+                used_horizons.add(hz)
+                break
+
+    for item in filtered:
+        if len(selected) >= limit:
+            break
+        if item in selected:
+            continue
+        selected.append(item)
+
+    ranked = selected[:limit]
     _CACHE[cache_key] = (now, ranked)
     return ranked
+_PUBLIC_BASE = os.getenv("PUBLIC_BASE_URL", "") or "https://web-production-a9084.up.railway.app"

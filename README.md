@@ -130,6 +130,9 @@ The backend reads the following environment variables:
 - `YT_CHANNEL_ID` – optional channel ID (UC…); used with API or RSS
 - `YT_CHANNEL_URL` – optional channel/handle URL (e.g., https://www.youtube.com/@BrettCorrigan); resolves ID via public page and uses RSS (no API key)
 - `ENABLE_PREMARKET_INGEST` – `1` to fetch latest premarket video transcript on startup and store as a Feature
+- `ENABLE_PREMARKET_INGEST_SCHEDULE` – `1` to run ingestion daily on a schedule
+- `PREMARKET_INGEST_TIME` – HH:MM local time to run (default `09:10`)
+- `PREMARKET_TZ` – IANA timezone for schedule (default `America/New_York`)
 - `DATABASE_URL` – async SQLAlchemy connection string (defaults to Postgres via `.env.server`; falls back to local SQLite if unset)
 - `DISCORD_WEBHOOK_URL` – optional webhook for trade + error notifications
 - `DATA_MODE`

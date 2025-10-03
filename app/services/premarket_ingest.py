@@ -255,3 +255,56 @@ async def run_on_startup() -> None:
     except Exception:
         # best-effort; do not crash app
         pass
+
+
+def _parse_time_hhmm(s: Optional[str]) -> tuple[int, int]:
+    try:
+        if not s:
+            return 9, 10
+        hh, mm = s.strip().split(":", 1)
+        return max(0, min(23, int(hh))), max(0, min(59, int(mm)))
+    except Exception:
+        return 9, 10
+
+
+async def _seconds_until_next(hh: int, mm: int, tz_name: str) -> float:
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+    now_utc = _now_utc()
+    now_local = now_utc.astimezone(tz)
+    target_local = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if target_local <= now_local:
+        target_local = target_local + dt.timedelta(days=1)
+    # Convert back to UTC for sleep seconds
+    target_utc = target_local.astimezone(dt.timezone.utc)
+    delta = (target_utc - now_utc).total_seconds()
+    return max(1.0, delta)
+
+
+async def run_scheduler_on_startup() -> None:
+    """Optional background loop: run every day at PREMARKET_INGEST_TIME (default 09:10 ET).
+    Controlled by ENABLE_PREMARKET_INGEST_SCHEDULE=1. Non-fatal on errors.
+    """
+    flag = _env("ENABLE_PREMARKET_INGEST_SCHEDULE")
+    if not flag or flag == "0":
+        return
+    tz_name = _env("PREMARKET_TZ", "America/New_York") or "America/New_York"
+    hh, mm = _parse_time_hhmm(_env("PREMARKET_INGEST_TIME", "09:10"))
+
+    async def _loop():
+        while True:
+            try:
+                delay = await _seconds_until_next(hh, mm, tz_name)
+                await asyncio.sleep(delay)
+                await ingest_premarket_once()
+                # small buffer to avoid double-trigger if clock jumps
+                await asyncio.sleep(5)
+            except Exception:
+                # do not crash; wait a minute and retry scheduling
+                await asyncio.sleep(60)
+
+    try:
+        # fire-and-forget task
+        asyncio.create_task(_loop())
+    except Exception:
+        pass

@@ -861,6 +861,13 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                 maxSpreadPct = float(options_req.get("maxSpreadPct", 8 if odte_flag else 12))
                 greeks = bool(options_req.get("greeks", True))
                 expiry = _normalize_expiry(options_req.get("expiry", ("today" if odte_flag else "auto")), horizon)
+                # Indices mode: bias to ODTE for intraday
+                try:
+                    if (_is_spx(sym) or _is_ndx(sym)) and horizon == "intraday" and not options_req.get("expiry"):
+                        expiry = _normalize_expiry("today", horizon)
+                        odte_flag = True
+                except Exception:
+                    pass
                 req = {"topK": topK, "maxSpreadPct": maxSpreadPct, "greeks": greeks, "expiry": expiry}
 
                 # Use Polygon snapshot; provider now supports snapshot_chain alias
@@ -1110,6 +1117,12 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                             await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
                         except Exception:
                             pass
+                        # Tighten quality gates for ODTE/scalp: require spread stability ≥ 0.6 when available
+                        try:
+                            if odte_flag or horizon == "scalp":
+                                picks = [p for p in picks if (p.get("spread_stability") is None) or (p.get("spread_stability") >= 0.6)]
+                        except Exception:
+                            pass
             except Exception as e:
                 errs[f"{sym}.options"] = f"{type(e).__name__}: {e}"
 
@@ -1214,6 +1227,12 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                 # NBBO sampling on fallback too
                                 try:
                                     await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                                except Exception:
+                                    pass
+                                # Tighten quality gates for ODTE/scalp
+                                try:
+                                    if options_req.get("odte") or horizon == "scalp":
+                                        picks = [p for p in picks if (p.get("spread_stability") is None) or (p.get("spread_stability") >= 0.6)]
                                 except Exception:
                                     pass
                 except Exception as e:
@@ -1358,6 +1377,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                     pivots_data = lpayload.get("pivots")
                     prev_day_data = lpayload.get("prev_day")
                     levels_session = lpayload.get("session_date_utc")
+                    levels_source = lpayload.get("levels_source")
             except Exception:
                 levels_payload = None
 
@@ -1372,6 +1392,14 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
             ctx_ref["prev_day_levels"] = prev_day_data
         if levels_session:
             ctx_ref["levels_session_utc"] = levels_session
+        try:
+            if levels_payload:
+                src = levels_payload.get("levels_source")
+                if src and str(src).upper() != sym.upper():
+                    ctx_ref["levels_source"] = src
+                    ctx_ref["index_proxy_note"] = f"Levels computed via {src} proxy"
+        except Exception:
+            pass
 
         # Attach premarket webinar context (if a Feature row exists for today)
         try:

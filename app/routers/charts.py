@@ -392,8 +392,13 @@ async def tradingview_chart(
   </head>
   <body>
     <div id='tv_chart'></div>
-    {"" if not note_html else f"<div id='note'>{note_html}</div>"}
+    <div id='note'></div>
     <script>
+      const entryVal = {_num(entry)};
+      const stopVal = {_num(sl)};
+      const tp1Val = {_num(tp1)};
+      const tp2Val = {_num(tp2)};
+      const userNote = `{note_html}`;
       const widget = new TradingView.widget({{
         symbol: "{escape(sym)}",
         interval: "{escape(interval)}",
@@ -412,32 +417,51 @@ async def tradingview_chart(
 
       widget.onChartReady(function() {{
         const chart = widget.activeChart();
-        const lines = [
-          {{ price: {_num(entry)}, text: 'Entry', color: '#22c55e', lineWidth: 2 }},
-          {{ price: {_num(sl)}, text: 'Stop', color: '#ef4444', lineWidth: 2 }},
-          {{ price: {_num(tp1)}, text: 'TP1', color: '#2563eb', lineWidth: 2 }},
-          {{ price: {_num(tp2)}, text: 'TP2', color: '#2563eb', lineWidth: 2, lineStyle: 2 }}
-        ];
-        lines.forEach(cfg => {{
-          if (cfg.price === null) return;
-          const line = chart.createHorizontalLine({{
-            price: cfg.price,
-            text: cfg.text,
-            color: cfg.color,
-            lineWidth: cfg.lineWidth || 1,
-            lineStyle: cfg.lineStyle || 0,
-            extendLeft: true,
-            extendRight: true,
-          }});
-          if (line && cfg.text) {{
-            line.setText(cfg.text);
-          }}
-        }});
+        const range = chart.getVisibleRange();
+        const anchorTime = range ? range.from : undefined;
+        const addLine = (price, text, color, style) => {{
+          if (price === null || price === undefined) return;
+          try {{
+            chart.createShape(
+              {{ time: anchorTime, price: price }},
+              {{
+                shape: 'horizontal_line',
+                text: text,
+                textcolor: color,
+                color: color,
+                linewidth: 2,
+                linestyle: style || 0,
+                lock: true,
+                disableSelection: true,
+              }}
+            );
+          }} catch(e) {{}}
+        }};
+
+        addLine(entryVal, 'Entry', '#22c55e', 0);
+        addLine(stopVal, 'Stop', '#ef4444', 0);
+        addLine(tp1Val, 'TP1', '#2563eb', 0);
+        addLine(tp2Val, 'TP2', '#2563eb', 2);
 
         try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}}
         try {{ chart.createStudy('MA Exp', false, false, [20]); }} catch(e) {{}}
         try {{ chart.createStudy('MA Exp', false, false, [50]); }} catch(e) {{}}
         try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
+
+        const fmt = (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2));
+        const list = [
+          `<li><strong>Entry</strong> ${fmt(entryVal)}</li>`,
+          `<li><strong>Stop</strong> ${fmt(stopVal)}</li>`,
+          `<li><strong>TP1</strong> ${fmt(tp1Val)}</li>`,
+          `<li><strong>TP2</strong> ${fmt(tp2Val)}</li>`
+        ].filter(Boolean).join('');
+        const noteEl = document.getElementById('note');
+        const fallbackTitle = '{escape(sym)} plan';
+        const title = userNote ? userNote : fallbackTitle;
+        noteEl.innerHTML = `
+          <h4>${title}</h4>
+          <ul>${list}</ul>
+        `;
       }});
     </script>
   </body>

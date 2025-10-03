@@ -551,9 +551,7 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                     if not top_watch:
                         top_watch = ["Watch SPY premarket extremes and yesterday range", "Monitor spreads/liquidity on open", "Reassess bias after first 15 minutes"]
                     pre["top_watch"] = pre.get("top_watch") or top_watch[:3]
-                    # attribution
-                    pre.setdefault("brand", "HoneyDrip Network")
-                    pre.setdefault("cta", "Join HoneyDrip Network Discord for daily premarket guidance")
+                    # attribution removed per request
                 except Exception:
                     pass
                 return {"ok": True, "op": op, "data": {"premarket": pre}}

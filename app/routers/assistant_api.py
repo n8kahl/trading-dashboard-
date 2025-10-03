@@ -20,8 +20,9 @@ router = APIRouter(prefix="/api/v1")
 
 # ---------- Dynamic provider imports (robust, non-fatal) ----------
 from importlib import import_module as _im
-import os
+import os, re
 from urllib.parse import urlencode
+from datetime import datetime
 from app.engine.risk_flags import compute_risk_flags
 
 PolygonMarket = None
@@ -73,6 +74,51 @@ async def _maybe_await(v):
     if inspect.isawaitable(v):
         return await v
     return v
+
+_OCC_RE = re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
+
+def _occ_parse(sym: str):
+    m = _OCC_RE.match(sym or "")
+    if not m:
+        return None
+    und, yy, mm, dd, cp, strike8 = m.groups()
+    strike = float(int(strike8) / 1000.0)
+    expiry = f"20{yy}-{mm}-{dd}"
+    otype = "call" if cp == "C" else "put"
+    return {"underlying": und, "expiry": expiry, "type": otype, "strike": strike}
+
+def _fmt_expiry(expiry: str) -> str:
+    try:
+        dt = datetime.strptime(str(expiry), "%Y-%m-%d")
+        return dt.strftime("%b %d, %Y")
+    except Exception:
+        return str(expiry)
+
+def _attach_display_fields(underlying: str, pick: Dict[str, Any]) -> None:
+    occ = None
+    if isinstance(pick.get("symbol"), str):
+        occ = _occ_parse(pick["symbol"]) or None
+    expiry = pick.get("expiry") or (occ and occ.get("expiry"))
+    strike = pick.get("strike") or (occ and occ.get("strike"))
+    otype = (pick.get("type") or pick.get("option_type") or (occ and occ.get("type")) or "").lower()
+    otype = "call" if otype.startswith("c") else ("put" if otype.startswith("p") else otype)
+    und = (underlying or occ and occ.get("underlying") or "").upper() or underlying
+    if expiry:
+        pick["expiry_display"] = _fmt_expiry(str(expiry))
+        pick["expiry"] = str(expiry)
+    if strike is not None:
+        try:
+            pick["strike"] = float(strike)
+        except Exception:
+            pass
+    if und and expiry and pick.get("strike") is not None and otype in ("call", "put"):
+        pick["contract_display"] = f"{und} {pick['expiry_display']} {pick['strike']:.0f} {otype.capitalize()}"
+    for k in ("bid", "ask", "last"):
+        if pick.get(k) is not None:
+            try:
+                pick[f"{k}_display"] = f"${float(pick[k]):.2f}"
+            except Exception:
+                pass
 
 def _near_atm_pairs(chain_rows: List[Dict[str, Any]], last_price: float, topK: int = 6) -> List[Dict[str, Any]]:
     """Pick a few near-ATM call & put rows from a generic chain list; normalize fields."""
@@ -765,6 +811,10 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     ta, comps = tradeability_score(r, horizon=horizon), None
                                 except Exception:
                                     pass
+                            try:
+                                _attach_display_fields(sym, r)
+                            except Exception:
+                                pass
                             r["tradeability"] = ta
                             r["hit_probabilities"] = {
                                 "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
@@ -894,7 +944,8 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                             v = rr.get(key)
                                             if key == 'iv':
                                                 v = v or (rr.get('greeks') or {}).get('mid_iv') or (rr.get('greeks') or {}).get('iv')
-                                            if v is not None: out.append(float(v))
+                                            if v is not None:
+                                                out.append(float(v))
                                         except Exception:
                                             pass
                                     return out
@@ -939,6 +990,10 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                                 ta = tradeability_score(r, horizon=horizon)
                                             except Exception:
                                                 pass
+                                        try:
+                                            _attach_display_fields(sym, r)
+                                        except Exception:
+                                            pass
                                         r["tradeability"] = ta
                                         r["hit_probabilities"] = {
                                             "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
@@ -966,11 +1021,11 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                             )
                                         except Exception:
                                             pass
-                                    # NBBO sampling on fallback too
-                                    try:
-                                        await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
-                                    except Exception:
-                                        pass
+                                # NBBO sampling on fallback too
+                                try:
+                                    await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
+                                except Exception:
+                                    pass
                 except Exception as e:
                     errs[f"{sym}.options.tradier_fallback"] = f"{type(e).__name__}: {e}"
 

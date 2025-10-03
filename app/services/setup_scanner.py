@@ -316,7 +316,7 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
     targets = {
         'scalp': _pick_date(0, 0),          # today
         'intraday': _pick_date(0, 0),       # today
-        'swing': _pick_date(21, 90),        # ~1–3 months
+        'swing': _pick_date(30, 150),       # ~1–5 months
         'leaps': leap_exp,                  # prefer official LEAP cycle
     }
     out: Dict[str, Any] = {}
@@ -343,7 +343,7 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
                 best = p.copy()
                 best['options_score'] = sc
         if best:
-            out[hz] = {
+            entry = {
                 'symbol': best.get('symbol'),
                 'type': best.get('type'),
                 'strike': best.get('strike'),
@@ -358,6 +358,14 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
                 'volume': best.get('volume'),
                 'options_score': best.get('options_score'),
             }
+            try:
+                from datetime import date
+                exp_dt = date.fromisoformat(entry['expiry'])
+                entry['days_to_exp'] = (exp_dt - today).days
+                entry['expiry_display'] = exp_dt.strftime('%b %d, %Y')
+            except Exception:
+                pass
+            out[hz] = entry
     return out or None
 
 
@@ -660,8 +668,16 @@ async def scan_top_setups(
             'tp2': tp2,
         }
 
+        preferred_hz = ((item.get('preferred_option') or {}).get('horizon') or '').lower()
+        chart_interval = '15'
+        if preferred_hz in ('swing',):
+            chart_interval = '60'
+        elif preferred_hz in ('leaps', 'leap', 'leaps '):
+            chart_interval = '1d'
+        url_interval = '15' if chart_interval == '15' else ('1h' if chart_interval == '60' else chart_interval)
+
         if item.get('symbol'):
-            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}"
+            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval={url_interval}&note={note}"
             if entry is not None:
                 url += f"&entry={entry}"
             if sl is not None:

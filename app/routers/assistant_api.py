@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.routers.diag import providers as diag_providers
 from app.routers.market import market_overview as market_overview_route
 from app.routers.hedge import HedgeRequest, hedge_plan
+from app.routers.market_data import compute_levels as market_compute_levels
 
 router = APIRouter(prefix="/api/v1")
 
@@ -190,20 +191,30 @@ def _confluence_tags(r: Dict[str, Any], horizon: str) -> List[str]:
         pass
     return tags
 
-def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel: Optional[float], r: Dict[str, Any], horizon: str, hits: Dict[str, Any]) -> Optional[str]:
+def _chart_url(
+    sym: str,
+    last: Optional[float],
+    em_abs: Optional[float],
+    em_rel: Optional[float],
+    r: Dict[str, Any],
+    horizon: str,
+    hits: Dict[str, Any],
+    key_levels: Optional[Dict[str, Any]] = None,
+    fibs: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
     try:
         if last is None or em_abs is None:
             return None
         direction = "long" if (r.get("type") == "call") else "short"
         entry = float(last)
         if direction == "long":
-            sl = entry - 0.25*em_abs
-            tp1 = entry + 0.25*em_abs
-            tp2 = entry + 0.50*em_abs
+            sl = entry - 0.25 * em_abs
+            tp1 = entry + 0.25 * em_abs
+            tp2 = entry + 0.50 * em_abs
         else:
-            sl = entry + 0.25*em_abs
-            tp1 = entry - 0.25*em_abs
-            tp2 = entry - 0.50*em_abs
+            sl = entry + 0.25 * em_abs
+            tp1 = entry - 0.25 * em_abs
+            tp2 = entry - 0.50 * em_abs
         conf = ",".join(_confluence_tags(r, horizon))
         # Simple beginner-friendly plan text (pipe-separated bullets)
         plan = []
@@ -213,6 +224,25 @@ def _chart_url(sym: str, last: Optional[float], em_abs: Optional[float], em_rel:
             plan.append("Wait for breakdown below Entry, then a quick retest that fails")
         plan.append("If invalidation hits, exit quickly and reassess")
         plan.append("Take Target 1 near 0.25×EM; consider Target 2 near 0.50×EM")
+
+        level_candidates = _collect_level_candidates(key_levels, fibs)
+        window = max(0.15, (em_abs or 1.0) * 0.15)
+        if level_candidates:
+            if tp1 is not None:
+                tp1_note = _nearest_level(tp1, entry, direction, level_candidates, window)
+                if tp1_note:
+                    plan.append(f"TP1 aligns with {tp1_note[0]} @ {tp1_note[1]:.2f}")
+                    r.setdefault("level_confluence", {})["tp1"] = {"label": tp1_note[0], "price": round(tp1_note[1], 2)}
+            if tp2 is not None:
+                tp2_note = _nearest_level(tp2, entry, direction, level_candidates, window * 1.5)
+                if tp2_note:
+                    plan.append(f"TP2 mindful of {tp2_note[0]} @ {tp2_note[1]:.2f}")
+                    r.setdefault("level_confluence", {})["tp2"] = {"label": tp2_note[0], "price": round(tp2_note[1], 2)}
+            stop_note = _stop_near(entry, sl, direction, level_candidates, window)
+            if stop_note:
+                plan.append(f"Stop sits near {stop_note[0]} @ {stop_note[1]:.2f}")
+                r.setdefault("level_confluence", {})["stop"] = {"label": stop_note[0], "price": round(stop_note[1], 2)}
+
         if hits:
             if hits.get("tp1") is not None:
                 plan.append(f"P(TP1) ≈ {int((hits['tp1'] if hits['tp1']<=1 else hits['tp1']/100)*100)}%")
@@ -274,6 +304,74 @@ def _normalize_expiry(raw: Any, hz: str) -> str:
 def _is_spx(sym: str) -> bool:
     s = (sym or "").upper()
     return s in ("SPX", "SPXW", "^SPX")
+
+
+_LEVEL_LABELS = {
+    "prev_high": "Yesterday High",
+    "prev_low": "Yesterday Low",
+    "prev_close": "Yesterday Close",
+    "premarket_high": "Pre-market High",
+    "premarket_low": "Pre-market Low",
+    "session_high": "Prior Session High",
+    "session_low": "Prior Session Low",
+}
+
+
+def _collect_level_candidates(key_levels: Optional[Dict[str, Any]], fibs: Optional[Dict[str, Any]]) -> List[Tuple[str, float]]:
+    levels: List[Tuple[str, float]] = []
+    if isinstance(key_levels, dict):
+        for key, label in _LEVEL_LABELS.items():
+            value = key_levels.get(key)
+            try:
+                if value is not None:
+                    levels.append((label, float(value)))
+            except (TypeError, ValueError):
+                continue
+    if isinstance(fibs, dict):
+        for group_name in ("retracements", "extensions"):
+            group = fibs.get(group_name) or {}
+            if not isinstance(group, dict):
+                continue
+            for tag, value in group.items():
+                try:
+                    if value is not None:
+                        prefix = "Fib" if group_name == "retracements" else "Fib Ext"
+                        levels.append((f"{prefix} {tag}", float(value)))
+                except (TypeError, ValueError):
+                    continue
+    return levels
+
+
+def _nearest_level(target: float, entry: float, direction: str, levels: List[Tuple[str, float]], window: float) -> Optional[Tuple[str, float]]:
+    candidates: List[Tuple[str, float, float]] = []
+    for label, price in levels:
+        if direction == "long" and price < min(entry, target):
+            continue
+        if direction == "short" and price > max(entry, target):
+            continue
+        diff = abs(price - target)
+        if diff <= window:
+            candidates.append((label, price, diff))
+    if not candidates:
+        return None
+    label, price, _ = min(candidates, key=lambda x: x[2])
+    return label, price
+
+
+def _stop_near(entry: float, stop: float, direction: str, levels: List[Tuple[str, float]], window: float) -> Optional[Tuple[str, float]]:
+    candidates: List[Tuple[str, float, float]] = []
+    for label, price in levels:
+        if direction == "long" and price > entry:
+            continue
+        if direction == "short" and price < entry:
+            continue
+        diff = abs(price - stop)
+        if diff <= window:
+            candidates.append((label, price, diff))
+    if not candidates:
+        return None
+    label, price, _ = min(candidates, key=lambda x: x[2])
+    return label, price
 
 
 # ---------- API Schemas ----------
@@ -635,7 +733,17 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     pass
                             # Attach chart URL for quick visualization
                             try:
-                                r["chart_url"] = _chart_url(sym, lp, em_abs, em_rel, r, horizon, r.get("hit_probabilities") or {})
+                                r["chart_url"] = _chart_url(
+                                    sym,
+                                    lp,
+                                    em_abs,
+                                    em_rel,
+                                    r,
+                                    horizon,
+                                    r.get("hit_probabilities") or {},
+                                    key_levels=key_levels_data,
+                                    fibs=fib_data,
+                                )
                             except Exception:
                                 pass
 
@@ -766,7 +874,17 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                                 pass
                                         # Attach chart URL as well (fallback path)
                                         try:
-                                            r["chart_url"] = _chart_url(sym, lp, em_abs, em_rel, r, horizon, r.get("hit_probabilities") or {})
+                                            r["chart_url"] = _chart_url(
+                                                sym,
+                                                lp,
+                                                em_abs,
+                                                em_rel,
+                                                r,
+                                                horizon,
+                                                r.get("hit_probabilities") or {},
+                                                key_levels=key_levels_data,
+                                                fibs=fib_data,
+                                            )
                                         except Exception:
                                             pass
                                     # NBBO sampling on fallback too
@@ -864,6 +982,13 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
         if lp is not None:
             out.setdefault("price", {})["last"] = lp
 
+        levels_payload: Optional[Dict[str, Any]] = None
+        key_levels_data: Optional[Dict[str, Any]] = None
+        fib_data: Optional[Dict[str, Any]] = None
+        pivots_data: Optional[Dict[str, Any]] = None
+        prev_day_data: Optional[Dict[str, Any]] = None
+        levels_session: Optional[str] = None
+
         picks, em_abs, em_rel, opt_ctx = await options_top(sym, lp)
         if picks:
             out.setdefault("options", {})["top"] = picks
@@ -895,14 +1020,46 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
             out.setdefault("context", {})["expected_move"] = {"abs": em_abs, "rel": em_rel}
         if opt_ctx:
             out.setdefault("context", {}).update(opt_ctx)
+
+        if poly:
+            try:
+                lpayload = await market_compute_levels(poly, sym)
+                if lpayload and lpayload.get("ok"):
+                    levels_payload = lpayload
+                    key_levels_data = lpayload.get("key_levels")
+                    fib_data = lpayload.get("fibonacci")
+                    pivots_data = lpayload.get("pivots")
+                    prev_day_data = lpayload.get("prev_day")
+                    levels_session = lpayload.get("session_date_utc")
+            except Exception:
+                levels_payload = None
+
+        ctx_ref = out.setdefault("context", {})
+        if key_levels_data:
+            ctx_ref["key_levels"] = key_levels_data
+        if fib_data:
+            ctx_ref["fibonacci"] = fib_data
+        if pivots_data:
+            ctx_ref["pivots"] = pivots_data
+        if prev_day_data:
+            ctx_ref["prev_day_levels"] = prev_day_data
+        if levels_session:
+            ctx_ref["levels_session_utc"] = levels_session
         # Phase 5: simple risk flags
         picks_local = (out.get("options") or {}).get("top") or []
         liq_trend = (out.get("context") or {}).get("liquidity_trend")
         out.setdefault("context", {})["risk_flags"] = compute_risk_flags(picks_local, liq_trend, providers_info)
 
-        # If "levels" were requested but we don't have enough bars off-hours, return an empty object instead of null.
         if "levels" in include:
-            out.setdefault("levels", {})
+            if levels_payload and levels_payload.get("ok"):
+                levels_obj = {
+                    k: levels_payload.get(k)
+                    for k in ("prev_day", "pivots", "key_levels", "fibonacci", "session_date_utc")
+                    if levels_payload.get(k) is not None
+                }
+                out["levels"] = levels_obj
+            else:
+                out.setdefault("levels", {})
 
         snapshot["symbols"][sym] = out
 

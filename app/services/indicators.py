@@ -122,3 +122,40 @@ def pivots_classic(prev_day: Dict[str, float]) -> Dict[str, float]:
     r2 = p + (h - l)
     s2 = p - (h - l)
     return {"P": round(p,2), "R1": round(r1,2), "S1": round(s1,2), "R2": round(r2,2), "S2": round(s2,2)}
+
+
+def fibonacci_levels(high: Optional[float], low: Optional[float]) -> Dict[str, Dict[str, float]]:
+    """Calculate common Fibonacci retracements and extensions for a price range."""
+    if high is None or low is None:
+        return {"retracements": {}, "extensions": {}}
+    try:
+        high_f = float(high)
+        low_f = float(low)
+    except (TypeError, ValueError):
+        return {"retracements": {}, "extensions": {}}
+
+    if high_f == low_f:
+        return {"retracements": {}, "extensions": {}}
+
+    top = max(high_f, low_f)
+    bottom = min(high_f, low_f)
+    span = top - bottom
+
+    retrace_levels = {
+        "0.236": round(top - span * 0.236, 2),
+        "0.382": round(top - span * 0.382, 2),
+        "0.5": round((top + bottom) / 2.0, 2),
+        "0.618": round(top - span * 0.618, 2),
+        "0.786": round(top - span * 0.786, 2),
+    }
+
+    extension_span = span
+    extensions = {
+        "1.272": round(top + extension_span * 0.272, 2),
+        "1.618": round(top + extension_span * 0.618, 2),
+        "2.0": round(top + extension_span * 1.0, 2),
+        "-0.272": round(bottom - extension_span * 0.272, 2),
+        "-0.618": round(bottom - extension_span * 0.618, 2),
+    }
+
+    return {"retracements": retrace_levels, "extensions": extensions}

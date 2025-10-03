@@ -27,6 +27,7 @@ Optional
     - `assistant.hedge` accepts `{ objective, horizon?, constraints?, positions[] }` and returns hedge plans.
   - Legacy op: `data.snapshot` (same payload as before) continues to return rich symbol snapshots with options picks, EM, risk flags, and strategy scaffolding.
     - Include `options` to fetch shortlists (and optional 0DTE strategies). `options.odte: true` keeps expiry on today with tighter spread caps.
+    - Snapshots now embed `context.key_levels` (yesterday high/low/close, pre-market extremes, prior session extremes) plus `context.fibonacci`. Strategy plans surface these when take-profits or stops overlap a level so you can see supply/demand confluence immediately.
 
 - `POST /api/v1/trades`, `GET /api/v1/trades`
   - Persist executions with symbol, side, qty, price, optional PnL/tags/context. List endpoint supports `symbol`, `since`, `limit` filters.
@@ -49,7 +50,7 @@ Optional
   - JSON OHLCV for client-side charts.
 
 - `GET /api/v1/market/levels`
-  - Prior-day OHLC and classic P/R/S pivots for labeling.
+  - Prior-day OHLC, classic pivots, key levels (pre-market high/low, session high/low), and Fibonacci retracements/extensions used by the assistant when discussing targets.
 
 - `GET /charts/proposal`
   - Interactive, beginner-friendly chart.

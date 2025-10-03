@@ -188,6 +188,7 @@ Heartbeats are sent every `WS_PING_SEC` seconds; the connection manager drops un
 - Backend route: `POST /api/v1/coach/chat`
   - Body: `{ messages: [{role, content}], stream?: false }`
   - Uses an OpenAI-compatible API on chat-data.com and calls the single action above.
+- Key levels: snapshots now stitch in prior-session highs/lows, pre-market extremes, classic pivots, and Fibonacci retracements/extensions. Strategy plans call these out when take-profit or stop targets overlap them so the coach can reason about nearby supply/demand pockets.
 
 Confidence: All ideas include a 0–100 confidence and a brief rationale using ATR, VWAP, EMA posture, order‑flow (RVOL/OBV/CVD approx), and liquidity, per `docs/CONFIDENCE.md`.
 

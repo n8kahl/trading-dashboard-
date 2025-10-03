@@ -296,11 +296,11 @@ def _chart_url(
                 plan.append(f"Stop sits near {stop_note[0]} @ {stop_note[1]:.2f}")
                 r.setdefault("level_confluence", {})["stop"] = {"label": stop_note[0], "price": round(stop_note[1], 2)}
 
-        if hits:
-            if hits.get("tp1") is not None:
-                plan.append(f"P(TP1) ≈ {int((hits['tp1'] if hits['tp1']<=1 else hits['tp1']/100)*100)}%")
-            if hits.get("tp2") is not None:
-                plan.append(f"P(TP2) ≈ {int((hits['tp2'] if hits['tp2']<=1 else hits['tp2']/100)*100)}%")
+        if em_abs:
+            if em_rel:
+                plan.append(f"Expected move ±{em_abs:.2f} (~{em_rel*100:.1f}% of spot)")
+            else:
+                plan.append(f"Expected move ±{em_abs:.2f}")
 
         chart_sym = 'SPY' if _is_spx(sym) else ('QQQ' if _is_ndx(sym) else sym)
         # Determine state label for chart
@@ -605,7 +605,7 @@ class ArgsMarketOverview(BaseModel):
 
 class ArgsMarketSetups(BaseModel):
     limit: int = Field(default=10, ge=3, le=30)
-    include_options: bool = Field(default=False)
+    include_options: bool = Field(default=True)
 
 
 def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:

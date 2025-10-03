@@ -177,6 +177,11 @@ This document tracks code and docs changes so work can be resumed easily in a ne
     - File: `app/routers/setups.py`, wired in `app/main.py`
   - Added `/charts/tradingview` page generating shareable TradingView widgets with entry/stop/target overlays.
     - File: `app/routers/charts.py`
+- October refinements
+  - Setups scanner now blends multi-TF alignment, price/liquidity, options tradability (scalp/intraday/swing/leaps) and rVol/trend into a composite confidence score. Filters remove low-priced illiquid names unless option spreads pass quality gates.
+    - Files: `app/services/setup_scanner.py`, `app/services/providers/tradier_chain.py`, `app/routers/setups.py`, `app/routers/assistant_api.py`
+  - Options scoring pulls Tradier expirations, near-ATM contracts, performs Polygon NBBO sampling, assigns A/B/C grades, and surfaces a preferred contract per horizon. Confidence grades (High/Moderate/Cautious) and clickable TradingView links are included per setup.
+  - Trade plan output now references expected-move bands instead of recycled TP probabilities for clearer guidance.
 
 - Commits
   - `ab78d79` Index support: map SPX/NDX to Polygon indices (I:SPX/I:NDX); prefer Tradier chains for index options; map charts/levels to SPY/QQQ

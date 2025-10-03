@@ -5,6 +5,7 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 try:
     from app.services.providers.polygon_market import PolygonMarket
@@ -134,53 +135,23 @@ async def _symbol_snapshot(poly: PolygonMarket, sym: str, mover_meta: Dict[str, 
             avg_daily_vol = sum(vols) / len(vols)
     intraday_rvol = None
     if avg_daily_vol > 0:
-        # Scale intraday volume to full-day equivalent (~390 minutes)
         minutes_count = max(1, len(intraday_minutes))
         scaled = intraday_volume * (390 / minutes_count)
         intraday_rvol = scaled / avg_daily_vol
 
-    score = 50.0
-    setup_tags: List[str] = []
-    if tf_h1.breakout:
-        score += 15
-        setup_tags.append("1h breakout")
-    elif tf_h1.retest:
-        score += 10
-        setup_tags.append("1h retest")
+    alignment_score, alignment_tags = _alignment_metrics(tf_daily, tf_h4, tf_h1)
+    price_liq_score, price_notes = _price_liquidity_score(last_price, mover_meta.get("volume"))
+    rvol_score, rvol_note = _rvol_score(intraday_rvol)
+    trend_score, trend_note = _trend_score(daily_trend)
 
-    if tf_h4.breakout:
-        score += 20
-        setup_tags.append("4h breakout")
-    elif tf_h4.retest:
-        score += 12
-        setup_tags.append("4h retest")
+    base_confidence = (
+        alignment_score * 0.45
+        + price_liq_score * 0.25
+        + rvol_score * 0.15
+        + trend_score * 0.15
+    )
 
-    if tf_daily.breakout:
-        score += 8
-        setup_tags.append("Daily breakout")
-    elif tf_daily.retest:
-        score += 5
-        setup_tags.append("Daily retest")
-
-    if daily_trend > 0:
-        score += 5
-    elif daily_trend < 0:
-        score -= 5
-
-    change_pct = _safe_float(mover_meta.get("change_pct"))
-    if change_pct is not None:
-        if abs(change_pct) >= 5:
-            score += 4
-        if change_pct < -2 and tf_h1.breakout:
-            score -= 6  # breakout against bearish move
-
-    if intraday_rvol and intraday_rvol >= 1.5:
-        score += 6
-    elif intraday_rvol and intraday_rvol < 0.7:
-        score -= 6
-
-    score = _clamp(score)
-    setup = ", ".join(setup_tags) if setup_tags else "Range watch"
+    setup = ", ".join(alignment_tags) if alignment_tags else "range watch"
 
     timeframes: Dict[str, Any] = {
         "daily": {
@@ -207,16 +178,28 @@ async def _symbol_snapshot(poly: PolygonMarket, sym: str, mover_meta: Dict[str, 
 
     return {
         "symbol": sym,
-        "score": int(round(score)),
         "setup": setup,
         "price": _round(last_price),
-        "change_pct": _round(change_pct, 2) if change_pct is not None else None,
+        "change_pct": _round(_safe_float(mover_meta.get("change_pct")), 2),
         "rvol": _round(intraday_rvol, 2) if intraday_rvol is not None else None,
         "timeframes": timeframes,
         "trend": {
             "daily_slope_pct": _round(daily_trend * 100.0, 2) if daily_trend else None,
         },
         "mover": mover_meta,
+        "alignment_tags": alignment_tags,
+        "components": {
+            "alignment": round(alignment_score, 3),
+            "price_liquidity": round(price_liq_score, 3),
+            "rvol": round(rvol_score, 3),
+            "trend": round(trend_score, 3),
+        },
+        "base_confidence": base_confidence,
+        "notes": {
+            "price": price_notes,
+            "rvol": [rvol_note] if rvol_note else [],
+            "trend": [trend_note] if trend_note else [],
+        },
     }
 
 
@@ -358,10 +341,106 @@ async def _options_summary(poly: PolygonMarket, symbol: str, last: Optional[floa
     return out or None
 
 
+def _alignment_metrics(tf_daily: _TimeframeState, tf_h4: _TimeframeState, tf_h1: _TimeframeState) -> Tuple[float, List[str]]:
+    tags: List[str] = []
+    score = 0.0
+    weights = {"h1": 0.42, "h4": 0.35, "daily": 0.23}
+
+    def _contrib(tf: _TimeframeState, label: str, weight: float) -> float:
+        if tf.breakout:
+            tags.append(f"{label} breakout")
+            return 1.0 * weight
+        if tf.retest:
+            tags.append(f"{label} retest")
+            return 0.7 * weight
+        return 0.0
+
+    score += _contrib(tf_h1, "1H", weights["h1"])
+    score += _contrib(tf_h4, "4H", weights["h4"])
+    score += _contrib(tf_daily, "Daily", weights["daily"])
+    return score, tags
+
+
+def _price_liquidity_score(last_price: Optional[float], volume: Optional[float]) -> Tuple[float, List[str]]:
+    notes: List[str] = []
+    price = float(last_price or 0.0)
+    vol = float(volume or 0.0)
+
+    if price <= 0:
+        return 0.2, notes
+
+    if price >= 50:
+        price_score = 1.0; notes.append("large-cap pricing")
+    elif price >= 25:
+        price_score = 0.9; notes.append("liquid mid/high price")
+    elif price >= 15:
+        price_score = 0.8
+    elif price >= 5:
+        price_score = 0.6; notes.append("mid-priced equity")
+    elif price >= 3:
+        price_score = 0.4; notes.append("low-priced")
+    else:
+        price_score = 0.15; notes.append("penny-priced")
+
+    if vol >= 8_000_000:
+        vol_score = 1.0; notes.append("heavy volume")
+    elif vol >= 4_000_000:
+        vol_score = 0.85
+    elif vol >= 1_500_000:
+        vol_score = 0.7
+    elif vol >= 500_000:
+        vol_score = 0.5
+    else:
+        vol_score = 0.25; notes.append("thin volume")
+
+    score = price_score * 0.6 + vol_score * 0.4
+    return min(1.0, max(0.0, score)), notes
+
+
+def _rvol_score(rvol: Optional[float]) -> Tuple[float, Optional[str]]:
+    if rvol is None:
+        return 0.5, None
+    if rvol >= 3.0:
+        return 1.0, "rVol >3×"
+    if rvol >= 2.0:
+        return 0.85, "rVol >2×"
+    if rvol >= 1.2:
+        return 0.7, None
+    if rvol >= 0.8:
+        return 0.5, "rVol muted"
+    return 0.35, "rVol soft"
+
+
+def _trend_score(daily_trend: float) -> Tuple[float, Optional[str]]:
+    if daily_trend is None:
+        return 0.5, None
+    if daily_trend >= 0.08:
+        return 1.0, "strong uptrend"
+    if daily_trend >= 0.03:
+        return 0.8, "uptrend"
+    if daily_trend >= -0.02:
+        return 0.6, None
+    if daily_trend >= -0.06:
+        return 0.4, "trend soft"
+    return 0.25, "downtrend risk"
+
+
+def _options_grade(score: Optional[float]) -> Optional[str]:
+    if score is None:
+        return None
+    if score >= 85:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 55:
+        return "C"
+    return "D"
+
+
 async def scan_top_setups(limit: int = 10, include_options: bool = False) -> List[Dict[str, Any]]:
     if PolygonMarket is None:
         return []
-    cache_key = f"top:{limit}"
+    cache_key = f"top:{limit}:opts:{1 if include_options else 0}"
     now = time.time()
     cached = _CACHE.get(cache_key)
     if cached and now - cached[0] < _CACHE_TTL:
@@ -402,20 +481,138 @@ async def scan_top_setups(limit: int = 10, include_options: bool = False) -> Lis
                 opts = await _options_summary(poly2, sym, last)
                 if opts:
                     item['options'] = opts
-                    # Blend options tradability into score (light weight)
-                    # Prefer horizons: scalp/intraday > swing > leaps
-                    scores = []
-                    for h in ('scalp','intraday','swing'):
-                        s = ((opts.get(h) or {}).get('options_score'))
-                        if isinstance(s, (int, float)):
-                            scores.append(float(s))
-                    if scores:
-                        boost = min(8.0, (sum(scores)/len(scores))/20.0)
-                        item['score'] = int(max(0, min(100, item.get('score', 0) + boost)))
             except Exception:
                 return
         await asyncio.gather(*[_enrich(r) for r in results])
 
-    ranked = sorted(results, key=lambda x: x.get("score", 0), reverse=True)[:limit]
+    processed: List[Dict[str, Any]] = []
+    for item in results:
+        price = _safe_float(item.get('price')) or 0.0
+        components = item.get('components') or {}
+        alignment_score = float(components.get('alignment') or 0.0)
+        price_liq_score = float(components.get('price_liquidity') or 0.0)
+        rvol_score = float(components.get('rvol') or 0.0)
+        trend_score = float(components.get('trend') or 0.0)
+
+        options_component = 0.0
+        option_best_note = None
+        option_grade_best = None
+        horizon_hits: List[str] = []
+
+        opts = item.get('options') if include_options else None
+        preferred_payload = None
+        preferred_weight = -1.0
+        if isinstance(opts, dict):
+            for horizon, payload in list(opts.items()):
+                if not isinstance(payload, dict):
+                    continue
+                sc = payload.get('options_score')
+                grade = _options_grade(sc)
+                if grade:
+                    payload['grade'] = grade
+                bid = payload.get('bid'); ask = payload.get('ask')
+                if bid is not None and ask is not None and ask > 0:
+                    try:
+                        spread_pct = ((ask - bid)/ask)*100.0
+                        payload.setdefault('spread_pct', round(spread_pct, 2))
+                    except Exception:
+                        pass
+                if sc is not None:
+                    val = max(0.0, min(1.0, float(sc)/100.0))
+                    if horizon in ('scalp','intraday'):
+                        weight = 1.05 if horizon == 'scalp' else 1.0
+                    elif horizon == 'swing':
+                        weight = 0.9
+                    else:  # leaps
+                        weight = 0.75
+                    weighted = val * weight
+                    if weighted > options_component:
+                        options_component = weighted
+                        option_best_note = f"{horizon} {grade or ''}".strip()
+                        option_grade_best = grade
+                    if grade in {'A','B'}:
+                        horizon_hits.append(f"{horizon}:{grade}")
+                    if weighted > preferred_weight:
+                        preferred_weight = weighted
+                        preferred_payload = {k: v for k, v in payload.items()}
+                        preferred_payload['horizon'] = horizon
+            if preferred_payload:
+                item['preferred_option'] = preferred_payload
+        else:
+            item['preferred_option'] = None
+
+        # Penalize if no tradable options and price is low
+        if options_component == 0.0 and price < 5:
+            options_component = 0.25
+
+        base_confidence = float(item.get('base_confidence') or 0.0)
+        final_confidence = (
+            min(1.0, alignment_score) * 0.40
+            + min(1.0, price_liq_score) * 0.20
+            + min(1.0, options_component) * 0.25
+            + min(1.0, rvol_score) * 0.1
+            + min(1.0, trend_score) * 0.05
+        )
+
+        # Adjust for penny risk
+        if price < 3:
+            final_confidence *= 0.65
+        elif price < 5:
+            final_confidence *= 0.8
+
+        confidence_pct = int(_clamp(round(final_confidence * 100)))
+        if confidence_pct >= 80:
+            grade = "High"
+        elif confidence_pct >= 65:
+            grade = "Moderate"
+        else:
+            grade = "Cautious"
+
+        # Build confidence note
+        notes: List[str] = []
+        if item.get('alignment_tags'):
+            notes.append(", ".join(item['alignment_tags']))
+        for entry in item.get('notes', {}).get('price', []):
+            notes.append(entry)
+        rv_note = item.get('notes', {}).get('rvol', [])
+        if rv_note:
+            notes.extend(rv_note)
+        tr_note = item.get('notes', {}).get('trend', [])
+        if tr_note:
+            notes.extend(tr_note)
+        if option_best_note:
+            notes.append(f"Options {option_best_note}")
+        notes = [n for n in notes if n]
+
+        # Apply guardrails for thin options
+        if include_options:
+            tradable = False
+            if isinstance(opts, dict):
+                for payload in opts.values():
+                    if isinstance(payload, dict):
+                        sc = payload.get('options_score')
+                        if sc and sc >= 60:
+                            tradable = True
+                            break
+            if not tradable and price < 5:
+                continue  # skip illiquid low price names
+
+        # Build chart link
+        try:
+            note = quote(item.get('setup') or '')
+        except Exception:
+            note = ''
+        item['chart_url'] = f"/charts/tradingview?symbol={item['symbol']}&interval=15&note={note}" if item.get('symbol') else None
+
+        item['score'] = confidence_pct
+        item['confidence'] = confidence_pct
+        item['confidence_grade'] = grade
+        item['confidence_note'] = "; ".join(notes[:3]) if notes else None
+        item['options_summary'] = opts if isinstance(opts, dict) else None
+        item['highlights'] = horizon_hits
+
+        processed.append(item)
+
+    ranked = sorted(processed, key=lambda x: x.get("score", 0), reverse=True)[:limit]
     _CACHE[cache_key] = (now, ranked)
     return ranked

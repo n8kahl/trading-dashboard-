@@ -32,8 +32,17 @@ async def bars(
     try:
         if interval == "1m":
             data = await poly.minute_bars_today(sym)
+            if not data:
+                prev_minutes, _ = await _previous_session_minutes(poly, sym)
+                if prev_minutes:
+                    data = prev_minutes
         elif interval == "5m":
             data = await poly.five_minute_bars_today(sym)
+            if not data:
+                try:
+                    data = await poly.five_minute_bars_prev_session(sym)
+                except AttributeError:
+                    data = []
         else:
             # 1d
             data = await poly.daily_bars(sym, lookback=max(lookback, 30))

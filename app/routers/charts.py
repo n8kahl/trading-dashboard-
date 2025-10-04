@@ -23,33 +23,31 @@ _INTERVAL_ALIASES = {
     "15": "15m",
     "15m": "15m",
     "15min": "15m",
-    "30": "30m",
-    "30m": "30m",
-    "30min": "30m",
-    "60": "1h",
-    "1h": "1h",
-    "hour": "1h",
-    "2h": "2h",
-    "120": "2h",
-    "4h": "4h",
-    "240": "4h",
+    "15minute": "15m",
     "d": "1d",
     "1d": "1d",
     "day": "1d",
     "daily": "1d",
-    "w": "1w",
-    "1w": "1w",
-    "week": "1w",
-    "weekly": "1w",
 }
 
 
-def _normalize_interval(value: Optional[str], *, default: str, allowed: Optional[set[str]] = None) -> str:
+_INTERVAL_CONFIG = {
+    "1m": {"fetch": "1m", "group": 1, "default_lookback": 390},
+    "5m": {"fetch": "5m", "group": 1, "default_lookback": 120},
+    "15m": {"fetch": "5m", "group": 3, "default_lookback": 120},
+    "1d": {"fetch": "1d", "group": 1, "default_lookback": 180},
+}
+
+
+def _normalize_interval(value: Optional[str], *, default: str) -> str:
     raw = (value or "").strip().lower()
     normalized = _INTERVAL_ALIASES.get(raw, raw or default)
-    if allowed and normalized not in allowed:
-        return default
-    return normalized or default
+    return normalized if normalized in _INTERVAL_CONFIG else default
+
+
+def _interval_prefs(interval: str) -> Tuple[str, int, int]:
+    cfg = _INTERVAL_CONFIG.get(interval, _INTERVAL_CONFIG["1m"])
+    return cfg["fetch"], cfg["group"], cfg["default_lookback"]
 
 
 def _tv_interval(normalized: str) -> str:
@@ -57,27 +55,9 @@ def _tv_interval(normalized: str) -> str:
         "1m": "1",
         "5m": "5",
         "15m": "15",
-        "30m": "30",
-        "45m": "45",
-        "1h": "60",
-        "2h": "120",
-        "4h": "240",
         "1d": "D",
-        "1w": "W",
     }
     return mapping.get(normalized, "15")
-
-
-def _default_lookback(normalized: str) -> int:
-    if normalized == "5m":
-        return 120
-    if normalized in {"15m", "30m"}:
-        return 90
-    if normalized in {"1h", "2h", "4h"}:
-        return 120
-    if normalized in {"1d", "1w"}:
-        return 180
-    return 390
 
 
 def _normalize_levels(
@@ -198,8 +178,8 @@ async def chart_proposal(
     width = max(640, min(1920, int(width)))
     height = max(360, min(1080, int(height)))
 
-    interval_norm = _normalize_interval(interval, default="1m", allowed={"1m", "5m", "1d"})
-    lookback_default = _default_lookback(interval_norm)
+    interval_norm = _normalize_interval(interval, default="1m")
+    fetch_interval, group_size, lookback_default = _interval_prefs(interval_norm)
     try:
         lookback_int = int(lookback)
     except Exception:
@@ -207,6 +187,8 @@ async def chart_proposal(
     if lookback_int <= 0:
         lookback_int = lookback_default
     lookback_int = min(max(lookback_int, 30), 5000)
+
+    fetch_lookback = min(max(lookback_int * max(1, group_size), 30), 5000)
 
     entry_val, sl_val, tp1_val, tp2_val = _normalize_levels(entry, sl, tp1, tp2, dir_norm, em_abs)
 
@@ -231,6 +213,7 @@ async def chart_proposal(
     }
     colors = color_theme[theme_key]
     interval_display = escape(interval_norm)
+    fetch_interval_display = escape(fetch_interval)
     anchor_norm = "last" if (anchor or "").lower() == "last" else "entry"
     em_abs_js = _js_num(em_abs if em_abs is not None else None)
     em_rel_js = _js_num(em_rel if em_rel is not None else None)
@@ -278,6 +261,7 @@ async def chart_proposal(
       <select id="selInterval">
         <option value="1m">1m</option>
         <option value="5m">5m</option>
+        <option value="15m">15m</option>
         <option value="1d">1d</option>
       </select>
       <button id="btnFit">Fit</button>
@@ -286,7 +270,7 @@ async def chart_proposal(
     <div class="panel" id="planPanel" style="display:none"></div>
   </div>
   <script>
-    const params = new URLSearchParams({ symbol: '${SYM}', interval: '${INTERVAL}', lookback: '${LOOKBACK}' });
+    const params = new URLSearchParams({ symbol: '${SYM}', interval: '${FETCH_INTERVAL}', lookback: '${FETCH_LOOKBACK}' });
     const apiBase = (window.location && window.location.origin) || '';
     const url = apiBase + '/api/v1/market/bars?' + params.toString();
     const levelsUrl = apiBase + '/api/v1/market/levels?symbol=${SYM}';
@@ -351,8 +335,8 @@ async def chart_proposal(
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444'
       });
 
-      async function fetchBars(intv) {
-        const p = new URLSearchParams({ symbol: '${SYM}', interval: intv, lookback: '${LOOKBACK}' });
+      async function fetchBars(intv, lookbackOverride) {
+        const p = new URLSearchParams({ symbol: '${SYM}', interval: intv, lookback: lookbackOverride || '${FETCH_LOOKBACK}' });
         const u = apiBase + '/api/v1/market/bars?' + p.toString();
         try {
           const r = await fetch(u);
@@ -362,27 +346,69 @@ async def chart_proposal(
         } catch (e) {}
         return [];
       }
-      let bars = await fetchBars('${INTERVAL}');
-      if (!bars.length && '${INTERVAL}' === '1m') bars = await fetchBars('5m');
+      let bars = await fetchBars('${FETCH_INTERVAL}');
+      let groupSize = ${GROUP_SIZE};
+      if (!bars.length && '${FETCH_INTERVAL}' === '1m') {
+        bars = await fetchBars('5m');
+        groupSize = ${GROUP_SIZE};
+      }
+      if (!bars.length && '${FETCH_INTERVAL}' !== '1d') {
+        bars = await fetchBars('1d', '${LOOKBACK}');
+        groupSize = 1;
+      }
       if (!bars.length) {
-        el.innerHTML = '<div style="color:${TEXT};padding:16px">No intraday data for ${SYM} (${INTERVAL}). Try a different timeframe or check market hours.</div>';
+        el.innerHTML = '<div style="color:${TEXT};padding:16px">No data available for ${SYM} (${INTERVAL}). Try a different timeframe or check market hours.</div>';
         return;
       }
-      const data = bars.map(b => ({ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }));
+
+      function aggregateBars(raw, group) {
+        if (!Array.isArray(raw) || group <= 1) return raw;
+        const out = [];
+        let bucket = null;
+        let count = 0;
+        for (const b of raw) {
+          if (bucket === null) {
+            bucket = { ...b };
+            bucket.h = b.h;
+            bucket.l = b.l;
+            bucket.v = b.v || 0;
+            count = 1;
+          } else {
+            bucket.h = Math.max(bucket.h, b.h);
+            bucket.l = Math.min(bucket.l, b.l);
+            bucket.c = b.c;
+            bucket.v = (bucket.v || 0) + (b.v || 0);
+            bucket.t = b.t;
+            count += 1;
+          }
+          if (count === group) {
+            out.push({ ...bucket });
+            bucket = null;
+            count = 0;
+          }
+        }
+        if (bucket) {
+          out.push({ ...bucket });
+        }
+        return out;
+      }
+
+      const normalizedBars = aggregateBars(bars, groupSize);
+      const data = normalizedBars.map(b => ({ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }));
       candleSeries.setData(data);
       // Fit content to visible range for readability
       try { chart.timeScale().fitContent(); } catch (e) {}
 
       if (want('vwap')) {
         const vwapSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 2 });
-        vwapSeries.setData(computeVWAP(bars));
+        vwapSeries.setData(computeVWAP(normalizedBars));
       }
 
-      const closes = bars.map(b => b.c);
+      const closes = normalizedBars.map(b => b.c);
       function overlayEMA(period, color) {
         const arr = ema(closes, period);
         const line = chart.addLineSeries({ color, lineWidth: 1 });
-        const arrData = bars.map((b, i) => ({ time: Math.floor(b.t/1000), value: arr[i] }));
+        const arrData = normalizedBars.map((b, i) => ({ time: Math.floor(b.t/1000), value: arr[i] }));
         line.setData(arrData);
       }
       if (want('ema20')) overlayEMA(20, '#f59e0b');
@@ -475,7 +501,7 @@ async def chart_proposal(
         const itv = iv.value;
         params.set('interval', itv);
         if (!params.get('lookback')) {
-          params.set('lookback', itv==='1d'? '180' : itv==='5m'? '120' : '390');
+          params.set('lookback', itv==='1d'? '180' : itv==='5m'? '120' : itv==='15m'? '120' : '390');
         }
         location.search = params.toString();
       };
@@ -485,7 +511,7 @@ async def chart_proposal(
       if (panel) {
         const items = (planRaw||'').split('|').map(s=>s.trim()).filter(Boolean);
         const last = data[data.length-1].close;
-        const vwapArr = computeVWAP(bars); const vwapLast = (vwapArr.slice(-1)[0]||{}).value;
+        const vwapArr = computeVWAP(normalizedBars); const vwapLast = (vwapArr.slice(-1)[0]||{}).value;
         const state = (vwapLast!=null && !isNaN(vwapLast)) ? (last>=vwapLast ? 'Price is above VWAP (bullish bias)' : 'Price is below VWAP (bearish bias)') : 'VWAP unavailable';
         let html = '<h4>Strategy Plan</h4>';
         html += '<div>'+state+'. Use VWAP and Pivots as context (P/R/S lines).</div>';
@@ -522,6 +548,9 @@ async def chart_proposal(
         'SYM': sym,
         'INTERVAL': interval_display,
         'LOOKBACK': str(lookback_int),
+        'FETCH_INTERVAL': fetch_interval_display,
+        'FETCH_LOOKBACK': str(fetch_lookback),
+        'GROUP_SIZE': str(max(1, group_size)),
         'OVERLAYS': overlays,
         'THEME': theme_key,
         'DIR': dir_norm,

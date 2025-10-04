@@ -360,15 +360,9 @@ def _chart_url(
             q["cb"] = int(time.time())
         except Exception:
             q["cb"] = 1
-        # Prefer a compact, shareable link using /charts/view?c=...
-        try:
-            # Keep the on-server decode stable by matching allowed keys in charts.view_short
-            from base64 import urlsafe_b64encode
-            import json as _json
-            code = urlsafe_b64encode(_json.dumps(q, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
-            return f"{_PUBLIC_BASE}/charts/view?c={code}"
-        except Exception:
-            return f"{_PUBLIC_BASE}/charts/proposal?" + urlencode(q)
+        # Return a regular proposal URL so callers can render their own link text.
+        # Keep parameters human-readable for easy debugging/sharing.
+        return f"{_PUBLIC_BASE}/charts/proposal?" + urlencode(q)
     except Exception:
         return None
 

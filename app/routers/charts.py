@@ -408,7 +408,7 @@ async def tradingview_chart(
     <style>
       html, body {{ margin:0; padding:0; height:100%; background:{'#0d1117' if theme_key == 'dark' else '#ffffff'}; }}
       #tv_chart {{ width:100%; height:100%; position:absolute; inset:0; }}
-      #note {{ position:absolute; left:12px; top:12px; background:{bg_overlay}; color:{text_color}; padding:10px 12px; border-radius:8px; font:13px/1.45 -apple-system,Segoe UI,Roboto; max-width:min(360px, 90vw); box-shadow:0 8px 16px rgba(15,23,42,0.3); }}
+      #note {{ position:absolute; left:12px; bottom:12px; background:{bg_overlay}; color:{text_color}; padding:10px 12px; border-radius:8px; font:13px/1.45 -apple-system,Segoe UI,Roboto; max-width:min(360px, 90vw); box-shadow:0 8px 16px rgba(15,23,42,0.3); }}
     </style>
   </head>
   <body>
@@ -419,6 +419,8 @@ async def tradingview_chart(
       const stopVal = {_num(sl)};
       const tp1Val = {_num(tp1)};
       const tp2Val = {_num(tp2)};
+      const apiBase = (window.location && window.location.origin) || '';
+      const levelsUrl = apiBase + '/api/v1/market/levels?symbol={escape(sym)}';
       const widget = new TradingView.widget({{
         symbol: "{escape(sym)}",
         interval: "{escape(interval)}",
@@ -514,6 +516,21 @@ async def tradingview_chart(
         try {{ chart.createStudy('Moving Average Exponential', false, false, [20]); }} catch(e) {{}}
         try {{ chart.createStudy('Moving Average Exponential', false, false, [50]); }} catch(e) {{}}
         try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
+        // Retry studies shortly after first paint (widget can delay symbol init)
+        setTimeout(() => {{ try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}} }}, 700);
+
+        // Add previous-day / session key levels from server API
+        fetch(levelsUrl).then(r => r.json()).then(L => {{
+          if (!L || !L.ok) return;
+          const colors = {{ prev_high:'#f59e0b', prev_low:'#3b82f6', prev_close:'#999', premarket_high:'#22c55e', premarket_low:'#ef4444', session_high:'#2563eb', session_low:'#ef4444' }};
+          const labels = {{ prev_high:'Yesterday High', prev_low:'Yesterday Low', prev_close:'Yesterday Close', premarket_high:'Pre-market High', premarket_low:'Pre-market Low', session_high:'Session High', session_low:'Session Low' }};
+          const addKey = (key) => {{
+            const v = (L.key_levels || {{}})[key];
+            if (v===null || v===undefined) return;
+            try {{ chart.createHorizontalLine(Number(v), {{ color: colors[key]||'#888', lineWidth: 1, lineStyle: 0 }}).setText(labels[key]||key); }} catch(e) {{}}
+          }};
+          ['prev_high','prev_low','prev_close','premarket_high','premarket_low','session_high','session_low'].forEach(addKey);
+        }}).catch(()=>{{}});
 
       }});
     </script>

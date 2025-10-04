@@ -923,6 +923,8 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
         chart_url = None
         if match:
             chart_url = match.get("chart_url")
+            if chart_url:
+                match.setdefault("chart_link", f"[View This Plan]({chart_url})")
 
         # Position analytics
         curr_bid = match.get("bid") if match else None
@@ -1334,7 +1336,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     pass
                             # Attach chart URL for quick visualization
                             try:
-                                r["chart_url"] = _chart_url(
+                                url = _chart_url(
                                     sym,
                                     lp,
                                     em_abs,
@@ -1345,6 +1347,9 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     key_levels=key_levels_data,
                                     fibs=fib_data,
                                 )
+                                r["chart_url"] = url
+                                if url:
+                                    r["chart_link"] = f"[View This Plan]({url})"
                             except Exception:
                                 pass
 
@@ -1596,7 +1601,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                                 pass
                                         # Attach chart URL as well (fallback path)
                                         try:
-                                            r["chart_url"] = _chart_url(
+                                            url = _chart_url(
                                                 sym,
                                                 lp,
                                                 em_abs,
@@ -1607,6 +1612,9 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                                 key_levels=key_levels_data,
                                                 fibs=fib_data,
                                             )
+                                            r["chart_url"] = url
+                                            if url:
+                                                r["chart_link"] = f"[View This Plan]({url})"
                                         except Exception:
                                             pass
                                 # NBBO sampling on fallback too

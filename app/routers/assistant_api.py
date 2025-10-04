@@ -268,7 +268,16 @@ def _chart_url(
     fibs: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     try:
-        if last is None or em_abs is None:
+        if last is None:
+            return None
+        # Fallback EM so we can always render a chart even when EM is missing
+        if em_abs is None:
+            try:
+                # ~0.30% of spot with a small floor for low-priced names
+                em_abs = round(max(0.003 * float(last), 0.25), 4)
+            except Exception:
+                em_abs = None
+        if em_abs is None:
             return None
         direction = "long" if (r.get("type") == "call") else "short"
         entry = float(last)
@@ -317,10 +326,18 @@ def _chart_url(
         chart_sym = 'SPY' if _is_spx(sym) else ('QQQ' if _is_ndx(sym) else sym)
         # Determine state label for chart
         state_label = "Scalp (0DTE)" if horizon == "scalp" else ("Intraday" if horizon == "intraday" else horizon.title())
+        # Choose a timeframe based on horizon for clearer visual context
+        hz = (horizon or '').lower()
+        if hz in ("scalp", "intraday", "swing"):
+            interval = "15m"; lookback = 160
+        elif hz in ("leap", "leaps", "leaps "):
+            interval = "1d"; lookback = 180
+        else:
+            interval = "15m"; lookback = 160
         q = {
             "symbol": chart_sym,
-            "interval": "1m",
-            "lookback": 390,
+            "interval": interval,
+            "lookback": lookback,
             "overlays": "vwap,ema20,ema50,pivots",
             "entry": round(entry, 4),
             "sl": round(sl, 4),

@@ -347,9 +347,16 @@ async def chart_proposal(
         'TP2': 'null' if tp2 is None else str(tp2),
         'ENTRY_TIME': 'null' if entry_time is None else str(int(entry_time)),
         'STATE': escape(state or ''),
-        'NOTE_BLOCK': note_block,
     })
-    return Response(content=html, media_type="text/html; charset=utf-8")
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.get("/tradingview")
@@ -406,7 +413,7 @@ async def tradingview_chart(
   </head>
   <body>
     <div id='tv_chart'></div>
-    <div id='note'>${NOTE_BLOCK}</div>
+    <div id='note'>{note_block}</div>
     <script>
       const entryVal = {_num(entry)};
       const stopVal = {_num(sl)};
@@ -512,4 +519,12 @@ async def tradingview_chart(
     </script>
   </body>
 </html>"""
-    return Response(content=html, media_type="text/html; charset=utf-8")
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )

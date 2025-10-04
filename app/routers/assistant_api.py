@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1")
 
 # ---------- Dynamic provider imports (robust, non-fatal) ----------
 from importlib import import_module as _im
-import os, re
+import os, re, time
 from urllib.parse import urlencode
 from datetime import datetime, time as _time
 from zoneinfo import ZoneInfo as _ZoneInfo
@@ -339,6 +339,10 @@ def _chart_url(
         }
         # drop None values
         q = {k:v for k,v in q.items() if v is not None}
+        try:
+            q["cb"] = int(time.time())
+        except Exception:
+            q["cb"] = 1
         return f"{_PUBLIC_BASE}/charts/proposal?" + urlencode(q)
     except Exception:
         return None

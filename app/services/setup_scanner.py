@@ -677,7 +677,9 @@ async def scan_top_setups(
         url_interval = '15' if chart_interval == '15' else ('1h' if chart_interval == '60' else chart_interval)
 
         if item.get('symbol'):
-            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval={url_interval}&note={note}"
+            import time as _t
+            cb = int(_t.time())
+            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval={url_interval}&note={note}&cb={cb}"
             if entry is not None:
                 url += f"&entry={entry}"
             if sl is not None:

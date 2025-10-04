@@ -195,15 +195,24 @@ async def chart_proposal(
       let sl = p(${SL});
       let tp1 = p(${TP1});
       let tp2 = p(${TP2});
-      // Normalize target direction for clarity
+      // Normalize target direction + enforce minimum risk:reward (1.0 / 1.5)
       try {
+        const last = (data && data.length) ? Number(data[data.length-1].close) : null;
         if (entry !== null) {
+          const risk = (sl!==null) ? Math.abs(entry - sl) : null;
+          const rr1 = 1.0; const rr2 = 1.5;
           if (dir === 'long') {
-            if (tp1 !== null && tp1 < entry) { tp1 = entry + (entry - tp1); }
-            if (tp2 !== null && tp2 < entry) { tp2 = entry + (entry - tp2); }
+            const base = Math.max(entry, (last ?? entry));
+            const minTP1 = (risk!=null) ? base + rr1*risk : base;
+            const minTP2 = (risk!=null) ? base + rr2*risk : base;
+            if (tp1===null || tp1 < minTP1) tp1 = minTP1;
+            if (tp2===null || tp2 < minTP2) tp2 = minTP2;
           } else {
-            if (tp1 !== null && tp1 > entry) { tp1 = entry - (tp1 - entry); }
-            if (tp2 !== null && tp2 > entry) { tp2 = entry - (tp2 - entry); }
+            const base = Math.min(entry, (last ?? entry));
+            const minTP1 = (risk!=null) ? base - rr1*risk : base;
+            const minTP2 = (risk!=null) ? base - rr2*risk : base;
+            if (tp1===null || tp1 > minTP1) tp1 = minTP1;
+            if (tp2===null || tp2 > minTP2) tp2 = minTP2;
           }
         }
       } catch(e) {}
@@ -598,6 +607,8 @@ async def tradingview_chart(
         try {{ chart.createStudy('Moving Average Exponential', false, false, [20]); }} catch(e) {{}}
         try {{ chart.createStudy('Moving Average Exponential', false, false, [50]); }} catch(e) {{}}
         try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
+        // Optional: attempt volume profile if available on this account/layout
+        try {{ chart.createStudy('Volume Profile Visible Range', false, false); }} catch(e) {{}}
         // Retry studies shortly after first paint (widget can delay symbol init)
         setTimeout(() => {{ try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}} }}, 700);
 

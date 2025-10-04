@@ -674,23 +674,34 @@ async def scan_top_setups(
             chart_interval = '60'
         elif preferred_hz in ('leaps', 'leap', 'leaps '):
             chart_interval = '1d'
-        url_interval = '15' if chart_interval == '15' else ('1h' if chart_interval == '60' else chart_interval)
+        # Map to proposal chart (intraday/swing -> 15m, leaps -> 1d)
+        prop_interval = '15m' if chart_interval in ('15', '60') else ('1d' if chart_interval == '1d' else '15m')
+        lookback = 160 if prop_interval == '15m' else 180
 
         if item.get('symbol'):
-            import time as _t
-            cb = int(_t.time())
-            url = f"{_PUBLIC_BASE}/charts/tradingview?symbol={item['symbol']}&interval={url_interval}&note={note}&cb={cb}"
+            from urllib.parse import urlencode
+            q = {
+                'symbol': item['symbol'],
+                'interval': prop_interval,
+                'lookback': lookback,
+                'overlays': 'vwap,ema20,ema50,pivots',
+                'plan': note,
+                'theme': 'dark',
+            }
             if entry is not None:
-                url += f"&entry={entry}"
+                q['entry'] = entry
             if sl is not None:
-                url += f"&sl={sl}"
+                q['sl'] = sl
             if tp1 is not None:
-                url += f"&tp1={tp1}"
+                q['tp1'] = tp1
             if tp2 is not None:
-                url += f"&tp2={tp2}"
+                q['tp2'] = tp2
+            url = f"{_PUBLIC_BASE}/charts/proposal?" + urlencode({k: v for k, v in q.items() if v is not None})
             item['chart_url'] = url
+            item['chart_link'] = f"[View This Plan]({url})"
         else:
             item['chart_url'] = None
+            item['chart_link'] = None
 
         item['score'] = confidence_pct
         item['confidence'] = confidence_pct

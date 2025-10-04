@@ -7,6 +7,8 @@ from typing import Optional, Tuple
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Query, Response
+from fastapi.responses import RedirectResponse
+import base64, json as _json
 
 router = APIRouter(prefix="/charts", tags=["charts"])
 
@@ -58,6 +60,41 @@ def _tv_interval(normalized: str) -> str:
         "1d": "D",
     }
     return mapping.get(normalized, "15")
+
+
+def _b64url_encode(obj: dict) -> str:
+    raw = _json.dumps(obj, separators=(",", ":")).encode("utf-8")
+    code = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return code
+
+
+def _b64url_decode(code: str) -> dict:
+    try:
+        pad = '=' * (-len(code) % 4)
+        raw = base64.urlsafe_b64decode((code + pad).encode("ascii"))
+        return _json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+
+
+@router.get("/view")
+async def view_short(c: str) -> Response:
+    """Decode a compact code and redirect to /charts/proposal with full query.
+
+    Usage: /charts/view?c=<base64url-json>
+    """
+    params = _b64url_decode(c or "")
+    # Guard: only allow a known set of keys
+    allowed = {
+        "symbol","interval","lookback","overlays","entry","sl","tp1","tp2",
+        "direction","confluence","em_abs","em_rel","anchor","hit_tp1","hit_tp2",
+        "state","plan","theme","entry_time","width","height"
+    }
+    clean = {k: v for k, v in params.items() if k in allowed and v is not None}
+    if "symbol" not in clean:
+        return Response(content="Missing symbol", media_type="text/plain", status_code=400)
+    from urllib.parse import urlencode
+    return RedirectResponse(url="/charts/proposal?" + urlencode(clean, doseq=False), status_code=307)
 
 
 def _normalize_levels(

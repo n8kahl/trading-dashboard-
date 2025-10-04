@@ -389,13 +389,26 @@ async def tradingview_chart(
             return f"{float(v):.2f}"
         except Exception:
             return "--"
-    note_items = ''.join([
-        f"<li><strong>Entry</strong> {_fmt(entry)}</li>",
-        f"<li><strong>Stop</strong> {_fmt(sl)}</li>",
-        f"<li><strong>TP1</strong> {_fmt(tp1)}</li>",
-        f"<li><strong>TP2</strong> {_fmt(tp2)}</li>",
-    ])
-    note_block = f"<h4>{escape(title_text)}</h4><ul>{note_items}</ul>"
+    overview = (
+        f"<div><strong>Entry</strong> {_fmt(entry)} · "
+        f"<strong>Stop</strong> {_fmt(sl)} · "
+        f"<strong>TP1</strong> {_fmt(tp1)} · "
+        f"<strong>TP2</strong> {_fmt(tp2)}</div>"
+    )
+    def _auto_steps(direction: str) -> list[str]:
+        steps = []
+        if direction == 'short':
+            steps.append("Wait for a clean rejection and at least one candle closing below entry.")
+            steps.append("Enter on a retest failure; avoid chasing extended moves.")
+        else:
+            steps.append("Wait for breakout confirmation and at least one candle closing above entry.")
+            steps.append("Enter on a quick retest that holds; avoid chasing late.")
+        steps.append("Risk management: respect the stop line; exit quickly if invalidated.")
+        steps.append("Take partial at TP1 (~0.25×EM); manage runner toward TP2 if momentum persists.")
+        steps.append("Stand aside or size down if spreads widen or liquidity thins.")
+        return steps
+    plan_steps = [escape(s.strip()) for s in note.split('|') if s.strip()] if note.strip() else _auto_steps('short' if direction.lower().startswith('short') else 'long')
+    note_block = f"<h4>{escape(title_text)}</h4>{overview}<ul>{''.join(f'<li>{step}</li>' for step in plan_steps)}</ul>"
     bg_overlay = "#111827cc" if theme_key == "dark" else "#ffffffd9"
     text_color = "#f9fafb" if theme_key == "dark" else "#111827"
     html = f"""<!doctype html>

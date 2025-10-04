@@ -1,9 +1,170 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Response
+import json
 from html import escape
+from string import Template
+from typing import Optional, Tuple
+from urllib.parse import quote_plus
+
+from fastapi import APIRouter, Query, Response
 
 router = APIRouter(prefix="/charts", tags=["charts"])
+
+
+_INTERVAL_ALIASES = {
+    "1": "1m",
+    "1m": "1m",
+    "1min": "1m",
+    "1minute": "1m",
+    "5": "5m",
+    "5m": "5m",
+    "5min": "5m",
+    "5minute": "5m",
+    "15": "15m",
+    "15m": "15m",
+    "15min": "15m",
+    "30": "30m",
+    "30m": "30m",
+    "30min": "30m",
+    "60": "1h",
+    "1h": "1h",
+    "hour": "1h",
+    "2h": "2h",
+    "120": "2h",
+    "4h": "4h",
+    "240": "4h",
+    "d": "1d",
+    "1d": "1d",
+    "day": "1d",
+    "daily": "1d",
+    "w": "1w",
+    "1w": "1w",
+    "week": "1w",
+    "weekly": "1w",
+}
+
+
+def _normalize_interval(value: Optional[str], *, default: str, allowed: Optional[set[str]] = None) -> str:
+    raw = (value or "").strip().lower()
+    normalized = _INTERVAL_ALIASES.get(raw, raw or default)
+    if allowed and normalized not in allowed:
+        return default
+    return normalized or default
+
+
+def _tv_interval(normalized: str) -> str:
+    mapping = {
+        "1m": "1",
+        "5m": "5",
+        "15m": "15",
+        "30m": "30",
+        "45m": "45",
+        "1h": "60",
+        "2h": "120",
+        "4h": "240",
+        "1d": "D",
+        "1w": "W",
+    }
+    return mapping.get(normalized, "15")
+
+
+def _default_lookback(normalized: str) -> int:
+    if normalized == "5m":
+        return 120
+    if normalized in {"15m", "30m"}:
+        return 90
+    if normalized in {"1h", "2h", "4h"}:
+        return 120
+    if normalized in {"1d", "1w"}:
+        return 180
+    return 390
+
+
+def _normalize_levels(
+    entry: Optional[float],
+    sl: Optional[float],
+    tp1: Optional[float],
+    tp2: Optional[float],
+    direction: str,
+    em_abs: Optional[float],
+) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    from app.engine.position_guidance import adjust_targets_for_em
+
+    dir_norm = "short" if (direction or "").lower().startswith("s") else "long"
+
+    def _num(val: Optional[float]) -> Optional[float]:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except Exception:
+            return None
+
+    entry_val = _num(entry)
+    sl_val = _num(sl)
+    tp1_val = _num(tp1)
+    tp2_val = _num(tp2)
+    em_val = _num(em_abs)
+
+    # Expected move anchored guidance
+    if entry_val is not None and em_val:
+        guidance = adjust_targets_for_em(entry=entry_val, em_abs=em_val, direction=dir_norm)
+        g_tp1 = guidance.get("tp1")
+        g_tp2 = guidance.get("tp2")
+        g_sl = guidance.get("sl_hint")
+        if g_tp1 is not None:
+            if tp1_val is None:
+                tp1_val = g_tp1
+            elif dir_norm == "long" and tp1_val < g_tp1:
+                tp1_val = g_tp1
+            elif dir_norm == "short" and tp1_val > g_tp1:
+                tp1_val = g_tp1
+        if g_tp2 is not None:
+            if tp2_val is None:
+                tp2_val = g_tp2
+            elif dir_norm == "long" and tp2_val < g_tp2:
+                tp2_val = g_tp2
+            elif dir_norm == "short" and tp2_val > g_tp2:
+                tp2_val = g_tp2
+        if sl_val is None and g_sl is not None:
+            sl_val = g_sl
+
+    # Ensure stop is on the correct side of entry
+    if entry_val is not None and sl_val is not None:
+        if dir_norm == "long" and sl_val >= entry_val:
+            sl_val = (entry_val - abs(tp1_val - entry_val) if tp1_val is not None else entry_val - (em_val or max(entry_val * 0.003, 0.2)))
+        elif dir_norm == "short" and sl_val <= entry_val:
+            sl_val = (entry_val + abs(tp1_val - entry_val) if tp1_val is not None else entry_val + (em_val or max(entry_val * 0.003, 0.2)))
+
+    # Enforce minimum risk:reward if we have valid stop
+    if entry_val is not None and sl_val is not None and sl_val != entry_val:
+        risk = abs(entry_val - sl_val)
+        min_rr1 = 1.0
+        min_rr2 = 1.5
+        if dir_norm == "long":
+            min_tp1 = entry_val + min_rr1 * risk
+            min_tp2 = entry_val + min_rr2 * risk
+            if tp1_val is None or tp1_val < min_tp1:
+                tp1_val = min_tp1
+            if tp2_val is None or tp2_val < min_tp2:
+                tp2_val = min_tp2
+        else:
+            min_tp1 = entry_val - min_rr1 * risk
+            min_tp2 = entry_val - min_rr2 * risk
+            if tp1_val is None or tp1_val > min_tp1:
+                tp1_val = min_tp1
+            if tp2_val is None or tp2_val > min_tp2:
+                tp2_val = min_tp2
+
+    def _round(val: Optional[float]) -> Optional[float]:
+        if val is None:
+            return None
+        try:
+            return round(float(val), 4)
+        except Exception:
+            return None
+
+    return _round(entry_val), _round(sl_val), _round(tp1_val), _round(tp2_val)
 
 
 @router.get("/proposal")
@@ -31,20 +192,57 @@ async def chart_proposal(
     height: int = 650,
 ) -> Response:
     sym = escape((symbol or "").upper())
-    interval = escape(interval)
+    dir_norm = "short" if (direction or "").lower().startswith("s") else "long"
     overlays = escape(overlays)
-    theme = "dark" if (theme or "").lower() == "dark" else "light"
+    theme_key = "dark" if (theme or "").lower() == "dark" else "light"
     width = max(640, min(1920, int(width)))
     height = max(360, min(1080, int(height)))
 
-    # Build HTML with a template to avoid f-string brace conflicts
-    from string import Template
-    bg = '#0d1117' if theme == 'dark' else '#ffffff'
-    text = '#c9d1d9' if theme == 'dark' else '#111'
-    grid = '#161b22' if theme == 'dark' else '#eee'
-    border = '#30363d' if theme == 'dark' else '#ddd'
-    badge_bg = '#161b22' if theme == 'dark' else '#f8f8f8'
-    dir_js = escape((direction or '').lower())
+    interval_norm = _normalize_interval(interval, default="1m", allowed={"1m", "5m", "1d"})
+    lookback_default = _default_lookback(interval_norm)
+    try:
+        lookback_int = int(lookback)
+    except Exception:
+        lookback_int = lookback_default
+    if lookback_int <= 0:
+        lookback_int = lookback_default
+    lookback_int = min(max(lookback_int, 30), 5000)
+
+    entry_val, sl_val, tp1_val, tp2_val = _normalize_levels(entry, sl, tp1, tp2, dir_norm, em_abs)
+
+    def _js_num(v: Optional[float]) -> str:
+        return "null" if v is None else json.dumps(v)
+
+    color_theme = {
+        "dark": {
+            "bg": "#0d1117",
+            "text": "#c9d1d9",
+            "grid": "#161b22",
+            "border": "#30363d",
+            "badge": "#161b22",
+        },
+        "light": {
+            "bg": "#ffffff",
+            "text": "#111111",
+            "grid": "#eeeeee",
+            "border": "#dddddd",
+            "badge": "#f8f8f8",
+        },
+    }
+    colors = color_theme[theme_key]
+    interval_display = escape(interval_norm)
+    anchor_norm = "last" if (anchor or "").lower() == "last" else "entry"
+    em_abs_js = _js_num(em_abs if em_abs is not None else None)
+    em_rel_js = _js_num(em_rel if em_rel is not None else None)
+    hit1_js = _js_num(hit_tp1 if hit_tp1 is not None else None)
+    hit2_js = _js_num(hit_tp2 if hit_tp2 is not None else None)
+    entry_js = _js_num(entry_val)
+    sl_js = _js_num(sl_val)
+    tp1_js = _js_num(tp1_val)
+    tp2_js = _js_num(tp2_val)
+    state_text = escape(state or "")
+    plan_safe = escape(plan or "", quote=True)
+    confluence_safe = escape(confluence or "", quote=True)
     tpl = Template("""<!doctype html>
 <html>
 <head>
@@ -158,6 +356,7 @@ async def chart_proposal(
         const u = apiBase + '/api/v1/market/bars?' + p.toString();
         try {
           const r = await fetch(u);
+          if (!r.ok) return [];
           const jj = await r.json();
           if (jj && jj.ok && Array.isArray(jj.bars) && jj.bars.length) return jj.bars;
         } catch (e) {}
@@ -165,9 +364,8 @@ async def chart_proposal(
       }
       let bars = await fetchBars('${INTERVAL}');
       if (!bars.length && '${INTERVAL}' === '1m') bars = await fetchBars('5m');
-      if (!bars.length) bars = await fetchBars('1d');
       if (!bars.length) {
-        el.innerHTML = '<div style="color:${TEXT};padding:16px">No bars available. Try later or a different interval.</div>';
+        el.innerHTML = '<div style="color:${TEXT};padding:16px">No intraday data for ${SYM} (${INTERVAL}). Try a different timeframe or check market hours.</div>';
         return;
       }
       const data = bars.map(b => ({ time: Math.floor(b.t/1000), open: b.o, high: b.h, low: b.l, close: b.c }));
@@ -195,27 +393,6 @@ async def chart_proposal(
       let sl = p(${SL});
       let tp1 = p(${TP1});
       let tp2 = p(${TP2});
-      // Normalize target direction + enforce minimum risk:reward (1.0 / 1.5)
-      try {
-        const last = (data && data.length) ? Number(data[data.length-1].close) : null;
-        if (entry !== null) {
-          const risk = (sl!==null) ? Math.abs(entry - sl) : null;
-          const rr1 = 1.0; const rr2 = 1.5;
-          if (dir === 'long') {
-            const base = Math.max(entry, (last ?? entry));
-            const minTP1 = (risk!=null) ? base + rr1*risk : base;
-            const minTP2 = (risk!=null) ? base + rr2*risk : base;
-            if (tp1===null || tp1 < minTP1) tp1 = minTP1;
-            if (tp2===null || tp2 < minTP2) tp2 = minTP2;
-          } else {
-            const base = Math.min(entry, (last ?? entry));
-            const minTP1 = (risk!=null) ? base - rr1*risk : base;
-            const minTP2 = (risk!=null) ? base - rr2*risk : base;
-            if (tp1===null || tp1 > minTP1) tp1 = minTP1;
-            if (tp2===null || tp2 > minTP2) tp2 = minTP2;
-          }
-        }
-      } catch(e) {}
       const entryTime = ${ENTRY_TIME};
       function priceLine(value, title, color) {
         if (value===null) return;
@@ -298,7 +475,7 @@ async def chart_proposal(
         const itv = iv.value;
         params.set('interval', itv);
         if (!params.get('lookback')) {
-          params.set('lookback', itv==='1d'? '180' : itv==='5m'? '300' : '390');
+          params.set('lookback', itv==='1d'? '180' : itv==='5m'? '120' : '390');
         }
         location.search = params.toString();
       };
@@ -343,31 +520,31 @@ async def chart_proposal(
 """)
     html = tpl.substitute({
         'SYM': sym,
-        'INTERVAL': interval,
-        'LOOKBACK': str(lookback),
+        'INTERVAL': interval_display,
+        'LOOKBACK': str(lookback_int),
         'OVERLAYS': overlays,
-        'THEME': theme,
-        'DIR': dir_js,
-        'CONFLUENCE': escape(confluence),
-        'EM_ABS': 'null' if em_abs is None else str(em_abs),
-        'EM_REL': 'null' if em_rel is None else str(em_rel),
-        'ANCHOR': anchor,
-        'HIT1': 'null' if hit_tp1 is None else str(hit_tp1),
-        'HIT2': 'null' if hit_tp2 is None else str(hit_tp2),
-        'BG': bg,
-        'TEXT': text,
-        'GRID': grid,
-        'BORDER': border,
-        'BADGE_BG': badge_bg,
+        'THEME': theme_key,
+        'DIR': dir_norm,
+        'CONFLUENCE': confluence_safe,
+        'EM_ABS': em_abs_js,
+        'EM_REL': em_rel_js,
+        'ANCHOR': anchor_norm,
+        'HIT1': hit1_js,
+        'HIT2': hit2_js,
+        'BG': colors['bg'],
+        'TEXT': colors['text'],
+        'GRID': colors['grid'],
+        'BORDER': colors['border'],
+        'BADGE_BG': colors['badge'],
         'WIDTH': str(width),
         'HEIGHT': str(height),
-        'PLAN': escape(plan),
-        'ENTRY': 'null' if entry is None else str(entry),
-        'SL': 'null' if sl is None else str(sl),
-        'TP1': 'null' if tp1 is None else str(tp1),
-        'TP2': 'null' if tp2 is None else str(tp2),
+        'PLAN': plan_safe,
+        'ENTRY': entry_js,
+        'SL': sl_js,
+        'TP1': tp1_js,
+        'TP2': tp2_js,
         'ENTRY_TIME': 'null' if entry_time is None else str(int(entry_time)),
-        'STATE': escape(state or ''),
+        'STATE': state_text,
     })
     return Response(
         content=html,
@@ -384,10 +561,15 @@ async def chart_proposal(
 async def tradingview_chart(
     symbol: str,
     interval: str = Query("15"),
+    direction: str = Query("long"),
     entry: float | None = None,
     sl: float | None = None,
     tp1: float | None = None,
     tp2: float | None = None,
+    em_abs: float | None = None,
+    em_rel: float | None = None,
+    hit_tp1: float | None = None,
+    hit_tp2: float | None = None,
     theme: str = Query("dark"),
     note: str = Query(""),
 ) -> Response:
@@ -395,40 +577,63 @@ async def tradingview_chart(
     if not sym:
         return Response(content="Symbol required", media_type="text/plain", status_code=400)
 
-    def _num(val: float | None) -> str:
-        if val is None:
-            return "null"
-        try:
-            return repr(round(float(val), 4))
-        except Exception:
-            return "null"
+    dir_norm = "short" if (direction or "").lower().startswith("s") else "long"
+    interval_norm = _normalize_interval(interval, default="15m")
+    tv_interval = _tv_interval(interval_norm)
 
-    theme_key = "dark" if (theme or "").lower() == "dark" else "light"
-    title_text = (note.strip() or f"{sym} plan")
-    def _fmt(v: float | None) -> str:
+    entry_val, sl_val, tp1_val, tp2_val = _normalize_levels(entry, sl, tp1, tp2, dir_norm, em_abs)
+
+    def _fmt(value: Optional[float]) -> str:
+        if value is None:
+            return "--"
         try:
-            return f"{float(v):.2f}"
+            return f"{float(value):.2f}"
         except Exception:
             return "--"
-    diff = lambda a, b: (abs(float(a) - float(b)) if a is not None and b is not None else None)
-    risk_val = diff(entry, sl)
-    r1 = diff(tp1, entry)
-    r2 = diff(tp2, entry)
-    rr1 = (r1 / risk_val) if risk_val and r1 is not None else None
-    rr2 = (r2 / risk_val) if risk_val and r2 is not None else None
+
+    def _prob_pct(value: Optional[float]) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            v = float(value)
+        except Exception:
+            return None
+        if v <= 1.0:
+            v *= 100.0
+        return int(round(v))
+
+    risk_val = abs(entry_val - sl_val) if entry_val is not None and sl_val is not None else None
+    tp1_r = abs(tp1_val - entry_val) if entry_val is not None and tp1_val is not None else None
+    tp2_r = abs(tp2_val - entry_val) if entry_val is not None and tp2_val is not None else None
+    rr1 = (tp1_r / risk_val) if risk_val and tp1_r is not None else None
+    rr2 = (tp2_r / risk_val) if risk_val and tp2_r is not None else None
+
     overview = (
-        f"<div><strong>Entry</strong> {_fmt(entry)} · "
-        f"<strong>Stop</strong> {_fmt(sl)} · "
-        f"<strong>TP1</strong> {_fmt(tp1)} · "
-        f"<strong>TP2</strong> {_fmt(tp2)}</div>"
+        f"<div><strong>Entry</strong> {_fmt(entry_val)} · "
+        f"<strong>Stop</strong> {_fmt(sl_val)} · "
+        f"<strong>TP1</strong> {_fmt(tp1_val)} · "
+        f"<strong>TP2</strong> {_fmt(tp2_val)}</div>"
     )
     if risk_val is not None:
         rr1_txt = f"{rr1:.2f}" if rr1 is not None else "--"
         rr2_txt = f"{rr2:.2f}" if rr2 is not None else "--"
         overview += f"<div>Risk ≈ {_fmt(risk_val)} pts · R:R TP1 {rr1_txt} · TP2 {rr2_txt}</div>"
+
+    if em_abs is not None:
+        em_line = f"Expected move ± {_fmt(em_abs)} pts"
+        try:
+            em_pct = float(em_rel) if em_rel is not None else None
+            if em_pct is not None:
+                if em_pct <= 1.0:
+                    em_pct *= 100.0
+                em_line += f" (~{em_pct:.1f}%)"
+        except Exception:
+            pass
+        overview += f"<div>{em_line}</div>"
+
     def _auto_steps(direction: str) -> list[str]:
-        steps = []
-        if direction == 'short':
+        steps: list[str] = []
+        if direction == "short":
             steps.append("Wait for a clean rejection and at least one candle closing below entry.")
             steps.append("Enter on a retest failure; avoid chasing extended moves.")
         else:
@@ -438,197 +643,237 @@ async def tradingview_chart(
         steps.append("Take partial at TP1 (~0.25×EM); manage runner toward TP2 if momentum persists.")
         steps.append("Stand aside or size down if spreads widen or liquidity thins.")
         return steps
-    plan_steps = [escape(s.strip()) for s in note.split('|') if s.strip()] if note.strip() else _auto_steps('short' if direction.lower().startswith('short') else 'long')
-    note_block = f"<h4>{escape(title_text)}</h4>{overview}<ul>{''.join(f'<li>{step}</li>' for step in plan_steps)}</ul>"
-    bg_overlay = "#111827cc" if theme_key == "dark" else "#ffffffd9"
-    text_color = "#f9fafb" if theme_key == "dark" else "#111827"
-    html = f"""<!doctype html>
+
+    note_title = note.strip() or f"{sym} plan"
+    if note.strip():
+        plan_steps = [escape(seg.strip()) for seg in note.split('|') if seg.strip()]
+    else:
+        plan_steps = [escape(step) for step in _auto_steps(dir_norm)]
+        hit1_pct = _prob_pct(hit_tp1)
+        hit2_pct = _prob_pct(hit_tp2)
+        if hit1_pct is not None:
+            plan_steps.append(escape(f"Approx P(Target 1) ~ {hit1_pct}% (touch probability)."))
+        if hit2_pct is not None:
+            plan_steps.append(escape(f"Approx P(Target 2) ~ {hit2_pct}% (touch probability)."))
+
+    note_block = (
+        f"<h4>{escape(note_title)}</h4>"
+        f"{overview}"
+        f"<ul>{''.join(f'<li>{step}</li>' for step in plan_steps)}</ul>"
+    )
+
+    theme_key = "dark" if (theme or "").lower() == "dark" else "light"
+    body_bg = "#0d1117" if theme_key == "dark" else "#ffffff"
+    note_bg = "#111827cc" if theme_key == "dark" else "#ffffffd9"
+    note_text = "#f9fafb" if theme_key == "dark" else "#111827"
+
+    def _js_num(val: Optional[float]) -> str:
+        return "null" if val is None else json.dumps(float(val))
+
+    entry_js = _js_num(entry_val)
+    sl_js = _js_num(sl_val)
+    tp1_js = _js_num(tp1_val)
+    tp2_js = _js_num(tp2_val)
+    em_abs_js = _js_num(em_abs)
+
+    levels_path = f"/api/v1/market/levels?symbol={quote_plus(sym)}"
+
+    tpl = Template("""<!doctype html>
 <html>
   <head>
-    <meta charset='utf-8'/>
-    <meta name='viewport' content='width=device-width, initial-scale=1'/>
-    <title>{sym} Play – TradingView</title>
-    <script type='text/javascript' src='https://s3.tradingview.com/tv.js'></script>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>${SYM} Play – TradingView</title>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <style>
-      html, body {{ margin:0; padding:0; height:100%; background:{'#0d1117' if theme_key == 'dark' else '#ffffff'}; }}
-      #tv_chart {{ width:100%; height:100%; position:absolute; inset:0; }}
-      #note {{ position:absolute; left:12px; bottom:12px; background:{bg_overlay}; color:{text_color}; padding:10px 12px; border-radius:8px; font:13px/1.45 -apple-system,Segoe UI,Roboto; max-width:min(360px, 90vw); box-shadow:0 8px 16px rgba(15,23,42,0.3); }}
+      html, body { margin:0; padding:0; height:100%; background:${BODY_BG}; }
+      #tv_chart { width:100%; height:100%; position:absolute; inset:0; }
+      #note { position:absolute; left:12px; bottom:12px; background:${NOTE_BG}; color:${NOTE_TEXT};
+              padding:10px 12px; border-radius:8px; font:13px/1.45 -apple-system,Segoe UI,Roboto;
+              max-width:min(360px, 90vw); box-shadow:0 8px 16px rgba(15,23,42,0.3); }
+      #note h4 { margin:0 0 6px 0; font-size:14px; }
+      #note ul { margin:6px 0 0; padding-left:18px; }
+      #note li { margin:3px 0; }
     </style>
   </head>
   <body>
-    <div id='tv_chart'></div>
-    <div id='note'>{note_block}</div>
+    <div id="tv_chart"></div>
+    <div id="note">${NOTE_BLOCK}</div>
     <script>
-      let entryVal = {_num(entry)};
-      let stopVal = {_num(sl)};
-      let tp1Val = {_num(tp1)};
-      let tp2Val = {_num(tp2)};
-      try {{
-        if (entryVal !== null) {{
-          if ('{escape(interval)}' && '{escape(interval)}'.toLowerCase()==='1d') {{ /* no-op */ }}
-          if ('{escape(direction)}'.toLowerCase().startsWith('long')) {{
-            if (tp1Val !== null && tp1Val < entryVal) tp1Val = entryVal + (entryVal - tp1Val);
-            if (tp2Val !== null && tp2Val < entryVal) tp2Val = entryVal + (entryVal - tp2Val);
-          }} else {{
-            if (tp1Val !== null && tp1Val > entryVal) tp1Val = entryVal - (tp1Val - entryVal);
-            if (tp2Val !== null && tp2Val > entryVal) tp2Val = entryVal - (tp2Val - entryVal);
-          }}
-        }}
-      }} catch(e) {{}}
       const apiBase = (window.location && window.location.origin) || '';
-      const levelsUrl = apiBase + '/api/v1/market/levels?symbol={escape(sym)}';
-      const widget = new TradingView.widget({{
-        symbol: "{escape(sym)}",
-        interval: "{escape(interval)}",
+      const levelsUrl = apiBase + '${LEVELS_PATH}';
+      const direction = '${DIR}';
+      const themeKey = '${THEME}';
+      const tvInterval = '${TV_INTERVAL}';
+      let entryVal = ${ENTRY};
+      let stopVal = ${SL};
+      let tp1Val = ${TP1};
+      let tp2Val = ${TP2};
+      const emAbs = ${EM_ABS};
+
+      const widget = new TradingView.widget({
+        symbol: "${SYM}",
+        interval: tvInterval,
         timezone: "exchange",
-        theme: "{theme_key}",
+        theme: themeKey,
         style: "1",
         locale: "en",
         container_id: "tv_chart",
         autosize: true,
-        fullscreen: true,
         hide_side_toolbar: false,
         hide_legend: false,
-        withdateranges: true,
-        save_image: false,
         allow_symbol_change: true,
         studies: [],
-      }});
+      });
 
-      widget.onChartReady(function() {{
+      widget.onChartReady(function() {
         const chart = widget.activeChart();
         const scale = chart.timeScale();
 
-        const addHL = (price, text, color, style) => {{
+        const addLine = (price, text, color, style = 0) => {
           if (price === null || price === undefined) return;
-          try {{
-            const line = chart.createHorizontalLine(price, {{
+          try {
+            const line = chart.createHorizontalLine(price, {
               color: color,
               lineWidth: 2,
-              lineStyle: style || 0,
-            }});
-            if (line && text) {{ line.setText(text); }}
-          }} catch(e) {{}}
-        }};
+              lineStyle: style,
+            });
+            if (line && text) line.setText(text);
+          } catch (e) {}
+        };
 
-        const addZone = (lower, upper, colorHex) => {{
-          if (lower === null || upper === null || lower === undefined || upper === undefined) return;
-          if (Number.isNaN(lower) || Number.isNaN(upper) || lower === upper) return;
+        addLine(entryVal, 'Entry', direction === 'long' ? '#22c55e' : '#ef4444');
+        addLine(stopVal, 'Stop', direction === 'long' ? '#ef4444' : '#22c55e');
+        addLine(tp1Val, 'TP1', '#2563eb');
+        addLine(tp2Val, 'TP2', '#2563eb', 2);
+
+        if (emAbs !== null && entryVal !== null) {
+          const upper = Number(entryVal) + Number(emAbs);
+          const lower = Number(entryVal) - Number(emAbs);
+          addLine(upper, 'EM Upper', '#7c3aed', 2);
+          addLine(lower, 'EM Lower', '#7c3aed', 2);
+        }
+
+        setTimeout(() => {
           const range = scale.getVisibleRange();
           if (!range) return;
-          try {{
-            chart.createShape(
-              [
-                {{ time: range.from, price: Math.max(lower, upper) }},
-                {{ time: range.to, price: Math.min(lower, upper) }}
-              ],
-              {{
-                shape: 'rectangle',
-                text: '',
-                color: colorHex,
-                backgroundColor: colorHex,
-                transparency: 80,
-                lock: true,
-                disableSelection: true,
-              }}
-            );
-          }} catch(e) {{}}
-        }};
+          const startTime = range.from;
+          const endTime = range.to;
 
-        setTimeout(() => {{
-          addHL(entryVal, 'Entry', '#22c55e', 0);
-          addHL(stopVal, 'Stop', '#ef4444', 0);
-          addHL(tp1Val, 'TP1', '#2563eb', 0);
-          addHL(tp2Val, 'TP2', '#2563eb', 2);
+          const addZoneRect = (lower, upper, colorHex) => {
+            if (lower === null || upper === null || lower === undefined || upper === undefined) return;
+            if (Number.isNaN(lower) || Number.isNaN(upper) || lower === upper) return;
+            try {
+              chart.createShape(
+                [
+                  { time: startTime, price: Math.max(lower, upper) },
+                  { time: endTime, price: Math.min(lower, upper) }
+                ],
+                {
+                  shape: 'rectangle',
+                  text: '',
+                  color: colorHex,
+                  backgroundColor: colorHex,
+                  transparency: 80,
+                  lock: true,
+                  disableSelection: true,
+                }
+              );
+            } catch (e) {}
+          };
 
-          const vals = [entryVal, stopVal, tp1Val, tp2Val].map(v => (v === null || v === undefined ? null : Number(v)));
-          const [entryP, stopP, tp1P, tp2P] = vals;
-          const startTime = data.length ? data[0].time : undefined;
-          const endTime = data.length ? data[data.length-1].time : undefined;
-          const addBaselineZone = (value, base, aboveColors, belowColors) => {{
+          const addBaselineZone = (value, base, topColors, bottomColors) => {
             if (value === null || base === null || startTime === undefined || endTime === undefined) return;
-            try {{
+            try {
               const series = chart.addBaselineSeries({
-                baseValue: {{ type: 'price', price: base }},
+                baseValue: { type: 'price', price: base },
                 lineWidth: 0,
                 lineVisible: false,
                 lastValueVisible: false,
                 priceLineVisible: false,
-                topFillColor1: aboveColors[0],
-                topFillColor2: aboveColors[1],
-                bottomFillColor1: belowColors[0],
-                bottomFillColor2: belowColors[1],
+                topFillColor1: topColors[0],
+                topFillColor2: topColors[1],
+                bottomFillColor1: bottomColors[0],
+                bottomFillColor2: bottomColors[1],
               });
               series.setData([
-                {{ time: startTime, value: value }},
-                {{ time: endTime, value: value }}
+                { time: startTime, value: value },
+                { time: endTime, value: value }
               ]);
-            }} catch(e) {{}}
-          }};
+            } catch (e) {}
+          };
 
-          let profitTarget = tp1P !== null ? tp1P : tp2P;
-          if (profitTarget === null) {{
-            profitTarget = tp2P !== null ? tp2P : null;
-          }}
-          const direction = (() => {{
-            if (profitTarget !== null && entryP !== null) {{
-              if (profitTarget > entryP) return 'long';
-              if (profitTarget < entryP) return 'short';
-            }}
-            if (stopP !== null && entryP !== null) {{
-              return stopP > entryP ? 'short' : 'long';
-            }}
-            return 'long';
-          }})();
+          const profitTarget = tp1Val !== null ? tp1Val : tp2Val;
+          if (entryVal !== null && stopVal !== null) {
+            const low = Math.min(entryVal, stopVal);
+            const high = Math.max(entryVal, stopVal);
+            addZoneRect(low, high, direction === 'long' ? 'rgba(248,113,113,0.35)' : 'rgba(74,222,128,0.3)');
+            if (direction === 'long') {
+              addBaselineZone(stopVal, entryVal, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)']);
+            } else {
+              addBaselineZone(stopVal, entryVal, ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
+            }
+          }
+          if (entryVal !== null && profitTarget !== null) {
+            const low = Math.min(entryVal, profitTarget);
+            const high = Math.max(entryVal, profitTarget);
+            addZoneRect(low, high, direction === 'long' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)');
+            if (direction === 'long') {
+              addBaselineZone(profitTarget, entryVal, ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
+            } else {
+              addBaselineZone(profitTarget, entryVal, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)']);
+            }
+          }
+        }, 350);
 
-          if (entryP !== null && stopP !== null) {{
-            const low = Math.min(entryP, stopP);
-            const high = Math.max(entryP, stopP);
-            addZone(low, high, direction === 'long' ? 'rgba(248,113,113,0.35)' : 'rgba(74,222,128,0.3)');
-            if (direction === 'long') {{
-              addBaselineZone(stopP, entryP, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)']);
-            }} else {{
-              addBaselineZone(stopP, entryP, ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
-            }}
-          }}
-          if (entryP !== null && profitTarget !== null) {{
-            const low = Math.min(entryP, profitTarget);
-            const high = Math.max(entryP, profitTarget);
-            addZone(low, high, direction === 'long' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)');
-            if (direction === 'long') {{
-              addBaselineZone(profitTarget, entryP, ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
-            }} else {{
-              addBaselineZone(profitTarget, entryP, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)']);
-            }}
-          }}
-        }}, 250);
+        try { chart.createStudy('VWAP', false, false); } catch (e) {}
+        try { chart.createStudy('Moving Average Exponential', false, false, [20]); } catch (e) {}
+        try { chart.createStudy('Moving Average Exponential', false, false, [50]); } catch (e) {}
+        try { chart.createStudy('Pivot Points Standard', false, false); } catch (e) {}
+        try { chart.createStudy('Volume Profile Visible Range', false, false); } catch (e) {}
 
-        try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}}
-        try {{ chart.createStudy('Moving Average Exponential', false, false, [20]); }} catch(e) {{}}
-        try {{ chart.createStudy('Moving Average Exponential', false, false, [50]); }} catch(e) {{}}
-        try {{ chart.createStudy('Pivot Points Standard', false, false); }} catch(e) {{}}
-        // Optional: attempt volume profile if available on this account/layout
-        try {{ chart.createStudy('Volume Profile Visible Range', false, false); }} catch(e) {{}}
-        // Retry studies shortly after first paint (widget can delay symbol init)
-        setTimeout(() => {{ try {{ chart.createStudy('VWAP', false, false); }} catch(e) {{}} }}, 700);
-
-        // Add previous-day / session key levels from server API
-        fetch(levelsUrl).then(r => r.json()).then(L => {{
-          if (!L || !L.ok) return;
-          const colors = {{ prev_high:'#f59e0b', prev_low:'#3b82f6', prev_close:'#999', premarket_high:'#22c55e', premarket_low:'#ef4444', session_high:'#2563eb', session_low:'#ef4444' }};
-          const labels = {{ prev_high:'Yesterday High', prev_low:'Yesterday Low', prev_close:'Yesterday Close', premarket_high:'Pre-market High', premarket_low:'Pre-market Low', session_high:'Session High', session_low:'Session Low' }};
-          const addKey = (key) => {{
-            const v = (L.key_levels || {{}})[key];
-            if (v===null || v===undefined) return;
-            try {{ chart.createHorizontalLine(Number(v), {{ color: colors[key]||'#888', lineWidth: 1, lineStyle: 0 }}).setText(labels[key]||key); }} catch(e) {{}}
-          }};
+        fetch(levelsUrl).then(resp => resp.json()).then(data => {
+          if (!data || !data.ok) return;
+          const colors = {
+            prev_high:'#f59e0b', prev_low:'#3b82f6', prev_close:'#999',
+            premarket_high:'#22c55e', premarket_low:'#ef4444',
+            session_high:'#2563eb', session_low:'#ef4444'
+          };
+          const labels = {
+            prev_high:'Yesterday High', prev_low:'Yesterday Low', prev_close:'Yesterday Close',
+            premarket_high:'Pre-market High', premarket_low:'Pre-market Low',
+            session_high:'Session High', session_low:'Session Low'
+          };
+          const addKey = (key) => {
+            const val = (data.key_levels || {})[key];
+            if (val === null || val === undefined) return;
+            try {
+              chart.createHorizontalLine(Number(val), { color: colors[key] || '#888', lineWidth: 1, lineStyle: 0 }).setText(labels[key] || key);
+            } catch (e) {}
+          };
           ['prev_high','prev_low','prev_close','premarket_high','premarket_low','session_high','session_low'].forEach(addKey);
-        }}).catch(()=>{{}});
-
-      }});
+        }).catch(() => {});
+      });
     </script>
   </body>
-</html>"""
+</html>""")
+
+    html = tpl.substitute({
+        'SYM': sym,
+        'DIR': dir_norm,
+        'THEME': theme_key,
+        'TV_INTERVAL': tv_interval,
+        'ENTRY': entry_js,
+        'SL': sl_js,
+        'TP1': tp1_js,
+        'TP2': tp2_js,
+        'EM_ABS': em_abs_js,
+        'NOTE_BLOCK': note_block,
+        'BODY_BG': body_bg,
+        'NOTE_BG': note_bg,
+        'NOTE_TEXT': note_text,
+        'LEVELS_PATH': levels_path,
+    })
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",

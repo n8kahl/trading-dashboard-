@@ -191,10 +191,22 @@ async def chart_proposal(
       if (want('ema50')) overlayEMA(50, '#a855f7');
 
       const p = (x) => (x===null || x===undefined || isNaN(x)) ? null : Number(x);
-      const entry = p(${ENTRY});
-      const sl = p(${SL});
-      const tp1 = p(${TP1});
-      const tp2 = p(${TP2});
+      let entry = p(${ENTRY});
+      let sl = p(${SL});
+      let tp1 = p(${TP1});
+      let tp2 = p(${TP2});
+      // Normalize target direction for clarity
+      try {
+        if (entry !== null) {
+          if (dir === 'long') {
+            if (tp1 !== null && tp1 < entry) { tp1 = entry + (entry - tp1); }
+            if (tp2 !== null && tp2 < entry) { tp2 = entry + (entry - tp2); }
+          } else {
+            if (tp1 !== null && tp1 > entry) { tp1 = entry - (tp1 - entry); }
+            if (tp2 !== null && tp2 > entry) { tp2 = entry - (tp2 - entry); }
+          }
+        }
+      } catch(e) {}
       const entryTime = ${ENTRY_TIME};
       function priceLine(value, title, color) {
         if (value===null) return;
@@ -389,12 +401,22 @@ async def tradingview_chart(
             return f"{float(v):.2f}"
         except Exception:
             return "--"
+    diff = lambda a, b: (abs(float(a) - float(b)) if a is not None and b is not None else None)
+    risk_val = diff(entry, sl)
+    r1 = diff(tp1, entry)
+    r2 = diff(tp2, entry)
+    rr1 = (r1 / risk_val) if risk_val and r1 is not None else None
+    rr2 = (r2 / risk_val) if risk_val and r2 is not None else None
     overview = (
         f"<div><strong>Entry</strong> {_fmt(entry)} · "
         f"<strong>Stop</strong> {_fmt(sl)} · "
         f"<strong>TP1</strong> {_fmt(tp1)} · "
         f"<strong>TP2</strong> {_fmt(tp2)}</div>"
     )
+    if risk_val is not None:
+        rr1_txt = f"{rr1:.2f}" if rr1 is not None else "--"
+        rr2_txt = f"{rr2:.2f}" if rr2 is not None else "--"
+        overview += f"<div>Risk ≈ {_fmt(risk_val)} pts · R:R TP1 {rr1_txt} · TP2 {rr2_txt}</div>"
     def _auto_steps(direction: str) -> list[str]:
         steps = []
         if direction == 'short':
@@ -428,10 +450,22 @@ async def tradingview_chart(
     <div id='tv_chart'></div>
     <div id='note'>{note_block}</div>
     <script>
-      const entryVal = {_num(entry)};
-      const stopVal = {_num(sl)};
-      const tp1Val = {_num(tp1)};
-      const tp2Val = {_num(tp2)};
+      let entryVal = {_num(entry)};
+      let stopVal = {_num(sl)};
+      let tp1Val = {_num(tp1)};
+      let tp2Val = {_num(tp2)};
+      try {{
+        if (entryVal !== null) {{
+          if ('{escape(interval)}' && '{escape(interval)}'.toLowerCase()==='1d') {{ /* no-op */ }}
+          if ('{escape(direction)}'.toLowerCase().startsWith('long')) {{
+            if (tp1Val !== null && tp1Val < entryVal) tp1Val = entryVal + (entryVal - tp1Val);
+            if (tp2Val !== null && tp2Val < entryVal) tp2Val = entryVal + (entryVal - tp2Val);
+          }} else {{
+            if (tp1Val !== null && tp1Val > entryVal) tp1Val = entryVal - (tp1Val - entryVal);
+            if (tp2Val !== null && tp2Val > entryVal) tp2Val = entryVal - (tp2Val - entryVal);
+          }}
+        }}
+      }} catch(e) {{}}
       const apiBase = (window.location && window.location.origin) || '';
       const levelsUrl = apiBase + '/api/v1/market/levels?symbol={escape(sym)}';
       const widget = new TradingView.widget({{
@@ -443,8 +477,10 @@ async def tradingview_chart(
         locale: "en",
         container_id: "tv_chart",
         autosize: true,
+        fullscreen: true,
         hide_side_toolbar: false,
         hide_legend: false,
+        withdateranges: true,
         save_image: false,
         allow_symbol_change: true,
         studies: [],
@@ -498,6 +534,29 @@ async def tradingview_chart(
 
           const vals = [entryVal, stopVal, tp1Val, tp2Val].map(v => (v === null || v === undefined ? null : Number(v)));
           const [entryP, stopP, tp1P, tp2P] = vals;
+          const startTime = data.length ? data[0].time : undefined;
+          const endTime = data.length ? data[data.length-1].time : undefined;
+          const addBaselineZone = (value, base, aboveColors, belowColors) => {{
+            if (value === null || base === null || startTime === undefined || endTime === undefined) return;
+            try {{
+              const series = chart.addBaselineSeries({
+                baseValue: {{ type: 'price', price: base }},
+                lineWidth: 0,
+                lineVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
+                topFillColor1: aboveColors[0],
+                topFillColor2: aboveColors[1],
+                bottomFillColor1: belowColors[0],
+                bottomFillColor2: belowColors[1],
+              });
+              series.setData([
+                {{ time: startTime, value: value }},
+                {{ time: endTime, value: value }}
+              ]);
+            }} catch(e) {{}}
+          }};
+
           let profitTarget = tp1P !== null ? tp1P : tp2P;
           if (profitTarget === null) {{
             profitTarget = tp2P !== null ? tp2P : null;
@@ -517,11 +576,21 @@ async def tradingview_chart(
             const low = Math.min(entryP, stopP);
             const high = Math.max(entryP, stopP);
             addZone(low, high, direction === 'long' ? 'rgba(248,113,113,0.35)' : 'rgba(74,222,128,0.3)');
+            if (direction === 'long') {{
+              addBaselineZone(stopP, entryP, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)']);
+            }} else {{
+              addBaselineZone(stopP, entryP, ['rgba(248,113,113,0.35)', 'rgba(248,113,113,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
+            }}
           }}
           if (entryP !== null && profitTarget !== null) {{
             const low = Math.min(entryP, profitTarget);
             const high = Math.max(entryP, profitTarget);
             addZone(low, high, direction === 'long' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)');
+            if (direction === 'long') {{
+              addBaselineZone(profitTarget, entryP, ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)'], ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']);
+            }} else {{
+              addBaselineZone(profitTarget, entryP, ['rgba(0,0,0,0)', 'rgba(0,0,0,0)'], ['rgba(74,222,128,0.35)', 'rgba(74,222,128,0.05)']);
+            }}
           }}
         }}, 250);
 

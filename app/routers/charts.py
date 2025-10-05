@@ -436,17 +436,27 @@ async def chart_proposal(
       // Fit content to visible range for readability
       try { chart.timeScale().fitContent(); } catch (e) {}
 
+      const addOverlayLabel = (name, value, color) => {
+        if (value===null || value===undefined || Number.isNaN(value)) return;
+        try { candleSeries.createPriceLine({ price: Number(value), color, lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: name }); } catch(e) {}
+      };
+
       if (want('vwap')) {
-        const vwapSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 2 });
-        vwapSeries.setData(computeVWAP(normalizedBars));
+        const vwapSeries = chart.addLineSeries({ color: '#60a5fa', lineWidth: 2, lastValueVisible: true, priceLineVisible: false });
+        const vwapData = computeVWAP(normalizedBars);
+        vwapSeries.setData(vwapData);
+        const vwapLast = (vwapData.slice(-1)[0]||{}).value;
+        addOverlayLabel('VWAP', vwapLast, '#60a5fa');
       }
 
       const closes = normalizedBars.map(b => b.c);
       function overlayEMA(period, color) {
         const arr = ema(closes, period);
-        const line = chart.addLineSeries({ color, lineWidth: 1 });
+        const line = chart.addLineSeries({ color, lineWidth: 1, lastValueVisible: true, priceLineVisible: false });
         const arrData = normalizedBars.map((b, i) => ({ time: Math.floor(b.t/1000), value: arr[i] }));
         line.setData(arrData);
+        const lastVal = arrData.length ? arrData[arrData.length-1].value : null;
+        addOverlayLabel(('EMA ' + String(period)), lastVal, color);
       }
       if (want('ema20')) overlayEMA(20, '#f59e0b');
       if (want('ema50')) overlayEMA(50, '#a855f7');
@@ -480,6 +490,10 @@ async def chart_proposal(
       priceLine(sl, 'Stop Loss', '#ef4444');
       priceLine(tp1, 'Target 1', '#60a5fa');
       priceLine(tp2, 'Target 2', '#60a5fa');
+      try {
+        const lastClose = (data && data.length) ? Number(data[data.length-1].close) : null;
+        if (lastClose !== null) candleSeries.createPriceLine({ price: lastClose, color: theme==='dark' ? '#e5e7eb' : '#111827', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'Current' });
+      } catch(e) {}
 
       if (entryTime) {
         const marker = {

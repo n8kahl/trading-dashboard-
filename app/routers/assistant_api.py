@@ -465,8 +465,12 @@ def _auto_expiry(hz: str) -> str:
         # Next Friday (incl. today if Friday -> next week)
         days = (4 - today.weekday()) % 7 or 7
         return str(today + timedelta(days=days))
-    # swing default ~2 weeks
-    return str(today + timedelta(days=14))
+    if hz in ("swing",):
+        return str(today + timedelta(days=30))  # ~1 month default
+    if hz in ("leap", "leaps", "leap "):
+        return str(today + timedelta(days=180))  # ~6 months default
+    # default swing-ish
+    return str(today + timedelta(days=30))
 
 def _normalize_expiry(raw: Any, hz: str) -> str:
     if raw is None:
@@ -735,6 +739,7 @@ class ArgsMarketSetups(BaseModel):
     symbols: Optional[List[str]] = None
     strict: bool = Field(default=True)
     min_confidence: int = Field(default=70, ge=0, le=100)
+    horizon: Optional[str] = Field(default=None, description="Preferred horizon bias for fallback snapshots: scalp|intraday|swing|leap")
 
 
 def _bad_request(op: str, message: str, details: Optional[Dict[str, Any]] = None) -> HTTPException:
@@ -850,7 +855,7 @@ async def assistant_exec(payload: ExecRequest = Body(...)) -> Dict[str, Any]:
                 try:
                     snap_args = {
                         "symbols": [symbols_list[0]],
-                        "horizon": "intraday",
+                        "horizon": (getattr(args, 'horizon', None) or 'intraday'),
                         "include": ["options"],
                     }
                     snapshot = await _handle_snapshot(snap_args)

@@ -122,6 +122,28 @@ def _market_is_open_now() -> bool:
     except Exception:
         return True
 
+
+def _intraday_remaining_factor() -> float:
+    """Return sqrt(time) scaling factor for the remainder of today's regular session.
+    1.0 before/after session (treat as full move), sqrt(remaining/total) during session.
+    Clamped to [0.4, 1.0] to avoid over-tight targets when late in the day.
+    """
+    try:
+        tz = _ZoneInfo("America/New_York")
+        now = datetime.now(tz)
+        start = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        end = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        total = (end - start).total_seconds()
+        if now < start or now > end:
+            return 1.0
+        rem = max(0.0, (end - now).total_seconds())
+        frac = rem / max(1.0, total)
+        import math
+        f = math.sqrt(max(0.0, min(1.0, frac)))
+        return float(min(1.0, max(0.4, f)))
+    except Exception:
+        return 1.0
+
 _OCC_RE = re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 
 def _occ_parse(sym: str):
@@ -317,7 +339,10 @@ def _chart_url(
         hz = (horizon or '').lower()
         # Baseline R risk from EM fraction
         em_risk_frac = 0.22 if hz in ("scalp",) else 0.28 if hz in ("intraday",) else 0.35 if hz in ("swing",) else 0.40
-        risk = max(0.01 * entry, em_risk_frac * em_abs)
+        # Use horizon-aware risk without price% floors; align to EM and remaining session
+        rem_factor = _intraday_remaining_factor() if hz in ("scalp","intraday") else 1.0
+        em_base = em_abs * rem_factor
+        risk = em_risk_frac * (em_base if hz in ("scalp","intraday") else em_abs)
         # EM-based target distances, scaled by volatility regime (IV percentile)
         ivp = None
         try:
@@ -331,17 +356,17 @@ def _chart_url(
             elif ivp >= 80:
                 vol_scale = 1.15
         if hz in ("scalp",):
-            d1, d2 = 0.50 * em_abs, 1.00 * em_abs
+            d1, d2 = 0.40 * em_base, 0.80 * em_base
         elif hz in ("intraday",):
-            d1, d2 = 0.70 * em_abs, 1.20 * em_abs
+            d1, d2 = 0.55 * em_base, 0.95 * em_base
         elif hz in ("swing",):
             d1, d2 = 1.00 * em_abs, 1.80 * em_abs
         else:  # leaps / default
             d1, d2 = 1.50 * em_abs, 2.50 * em_abs
         d1 *= vol_scale
         d2 *= vol_scale
-        # Risk-based target distances
-        rr1, rr2 = 1.2 * risk, 2.0 * risk
+        # Risk-based floors
+        rr1, rr2 = 1.0 * risk, 1.6 * risk
         dist1 = max(d1, rr1)
         dist2 = max(d2, rr2, dist1 * 1.25)
         # Compute preliminary SL/TPs
@@ -372,7 +397,8 @@ def _chart_url(
             pass
         # Ensure TP spacing is meaningful
         try:
-            min_gap = max(0.0025 * entry, 0.20 * em_abs)
+            base_gap = em_base if hz in ("scalp","intraday") else em_abs
+            min_gap = max(0.0025 * entry, 0.15 * base_gap)
             if abs(tp2 - tp1) < min_gap:
                 if direction == "long":
                     tp2 = tp1 + min_gap

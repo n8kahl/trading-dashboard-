@@ -475,18 +475,30 @@ async def chart_proposal(
           const isScalp = (itv === '1m' || itv === '5m');
           const isIntraday = (itv === '15m');
           const isDaily = (itv === '1d');
-          const emv = (emAbs!==null && !isNaN(emAbs)) ? Number(emAbs) : null;
+          const emv0 = (emAbs!==null && !isNaN(emAbs)) ? Number(emAbs) : null;
+          // Remaining-session sqrt(time) scaling for intraday
+          function remainFactor(){
+            try {
+              const now = new Date();
+              const start = new Date(now); start.setHours(9,30,0,0);
+              const end = new Date(now); end.setHours(16,0,0,0);
+              if (now < start || now > end) return 1.0;
+              const total = (end-start)/1000; const rem = (end-now)/1000; const f = Math.sqrt(Math.max(0, Math.min(1, rem/Math.max(1,total))));
+              return Math.min(1.0, Math.max(0.4, f));
+            } catch(_) { return 1.0; }
+          }
+          const emv = (isScalp || isIntraday) && emv0!==null ? emv0 * remainFactor() : emv0;
           // EM-based target distances per horizon
           let d1 = null, d2 = null;
           if (emv !== null) {
-            if (isScalp) { d1 = 0.50*emv; d2 = 1.00*emv; }
-            else if (isIntraday) { d1 = 0.70*emv; d2 = 1.20*emv; }
+            if (isScalp) { d1 = 0.40*emv; d2 = 0.80*emv; }
+            else if (isIntraday) { d1 = 0.55*emv; d2 = 0.95*emv; }
             else if (isDaily) { d1 = 1.00*emv; d2 = 1.80*emv; }
             else { d1 = 1.50*emv; d2 = 2.50*emv; }
           }
-          const rr1 = 1.2*risk, rr2 = 2.0*risk;
-          const dist1 = Math.max(d1 ?? 0, rr1);
-          const dist2 = Math.max(d2 ?? 0, rr2, dist1*1.25);
+          const rr1 = 1.0*risk, rr2 = 1.6*risk;
+          const dist1 = Math.max(d1 ?? rr1, rr1);
+          const dist2 = Math.max(d2 ?? rr2, rr2, (dist1*1.25));
           if (dir === 'long') {
             if (tp1 === null) tp1 = entry + dist1;
             if (tp2 === null) tp2 = entry + dist2;
@@ -495,7 +507,8 @@ async def chart_proposal(
             if (tp2 === null) tp2 = entry - dist2;
           }
           // Enforce a meaningful gap between TP1/TP2
-          const minGap = Math.max(0.0025*entry, (emv ? 0.20*emv : 0.5*risk));
+          const baseGap = (isScalp || isIntraday) ? (emv ?? risk) : (emv ?? risk);
+          const minGap = Math.max(0.0025*entry, 0.15*baseGap);
           if (Math.abs(tp2 - tp1) < minGap) {
             if (dir === 'long') tp2 = tp1 + minGap; else tp2 = tp1 - minGap;
           }

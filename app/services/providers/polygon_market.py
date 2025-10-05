@@ -19,6 +19,7 @@ except Exception:
     _poly_rl = None
 
 logger = logging.getLogger("app.providers.polygon")
+INTERNALS_ENABLED = os.getenv("ENABLE_MARKET_INTERNALS", "false").lower() in {"1", "true", "yes", "on"}
 
 
 class PermissionDeniedError(RuntimeError):
@@ -147,6 +148,12 @@ class PolygonMarket:
                     await asyncio.sleep(backoff)
                     backoff = min(2.0, backoff * 2)
                     continue
+
+                if status == 404:
+                    logger.debug("Polygon 404 on %s (suppressing exception)", path)
+                    if cache_ttl:
+                        _cache_put(key, {})
+                    return {}
 
                 try:
                     r.raise_for_status()
@@ -423,7 +430,7 @@ class PolygonMarket:
         url = f"{BASE}/v3/quotes/options/{option_symbol}"
         if _poly_rl is not None:
             await _poly_rl.wait(1.0)
-        j = await self._get(url, None, cache_ttl=0)
+        j = await self._get(url, None, cache_ttl=60)
         # Normalize best-effort
         r = None
         if isinstance(j.get("results"), list) and j.get("results"):

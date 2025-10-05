@@ -591,7 +591,7 @@ async def chart_proposal(
             'ev_negative': 'EV −',
             'delta_fit': 'Δ Fit',
           };
-          return map[t] || t.replace(/_/g,' ').replace(/\b\w/g, s=>s.toUpperCase());
+          return map[t] || t.replace(/_/g,' ').replace(/\\b\\w/g, (s)=>s.toUpperCase());
         };
         for (const name of confluence) addBadge(pretty(name));
       }

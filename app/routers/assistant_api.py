@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Literal
 from app.services.indicators import spread_stability as _spread_stability
 from app.services.iv_surface import get_iv_surface, percentile_rank as _pct_rank_surface
 from app.services.state_store import record_chain_aggregates
+from app.services.providers.polygon_market import INTERNALS_ENABLED as _POLY_INTERNALS_ENABLED
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
@@ -124,10 +125,7 @@ def _market_is_open_now() -> bool:
 
 
 def _intraday_remaining_factor() -> float:
-    """Return sqrt(time) scaling factor for the remainder of today's regular session.
-    1.0 before/after session (treat as full move), sqrt(remaining/total) during session.
-    Clamped to [0.4, 1.0] to avoid over-tight targets when late in the day.
-    """
+    """Sqrt(time factor for remaining regular session (Eastern). 1 outside RTH."""
     try:
         tz = _ZoneInfo("America/New_York")
         now = datetime.now(tz)
@@ -138,11 +136,42 @@ def _intraday_remaining_factor() -> float:
             return 1.0
         rem = max(0.0, (end - now).total_seconds())
         frac = rem / max(1.0, total)
-        import math
         f = math.sqrt(max(0.0, min(1.0, frac)))
         return float(min(1.0, max(0.4, f)))
     except Exception:
         return 1.0
+
+
+_EM_CACHE_TTL = 120.0
+_EM_CACHE: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+
+def _em_cache_key(sym: str, expiry: Any, horizon: str) -> Tuple[str, str, str]:
+    return (str(sym or '').upper(), str(expiry or ''), horizon)
+
+
+def _em_cache_get(sym: str, expiry: Any, horizon: str, last_price: Optional[float]) -> Optional[Tuple[float, Optional[float]]]:
+    key = _em_cache_key(sym, expiry, horizon)
+    entry = _EM_CACHE.get(key)
+    if not entry:
+        return None
+    if time.time() - entry.get('t', 0.0) > _EM_CACHE_TTL:
+        _EM_CACHE.pop(key, None)
+        return None
+    cache_lp = entry.get('lp')
+    if cache_lp is not None and last_price is not None and last_price > 0:
+        if abs(cache_lp - last_price)/last_price > 0.01:
+            return None
+    return entry.get('value')
+
+
+def _em_cache_put(sym: str, expiry: Any, horizon: str, last_price: Optional[float], em_abs: float, em_rel: Optional[float]) -> None:
+    key = _em_cache_key(sym, expiry, horizon)
+    _EM_CACHE[key] = {
+        't': time.time(),
+        'lp': last_price,
+        'value': (em_abs, em_rel)
+    }
 
 _OCC_RE = re.compile(r"^([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
 
@@ -589,7 +618,7 @@ def _stop_near(entry: float, stop: float, direction: str, levels: List[Tuple[str
 
 async def _market_internals_summary(poly) -> Optional[Dict[str, Any]]:
     """Fetch a few market-internals proxies (advancers/decliners, TICK, ADD) and distil a signal."""
-    if not poly:
+    if not poly or not _POLY_INTERNALS_ENABLED:
         return None
 
     symbol_map = {
@@ -1283,8 +1312,13 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                             picks = [p for p in picks if (p.get("spread_pct") is None) or (p.get("spread_pct") <= maxSpreadPct)]
 
                 # EM & probabilities if we have picks and last price
+                cache_key = _em_cache_key(sym, expiry, horizon)
                 if picks and lp is not None:
-                    em_abs, em_rel = _simple_em_from_straddle(lp, picks)
+                    cached_em = _em_cache_get(sym, expiry, horizon, lp)
+                    if cached_em:
+                        em_abs, em_rel = cached_em
+                    else:
+                        em_abs, em_rel = _simple_em_from_straddle(lp, picks)
                     if not em_abs and poly:
                         # Fallback to ATR(14) daily when straddle-based EM is unavailable
                         try:
@@ -1294,6 +1328,8 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                         if atr:
                             em_abs = atr
                             em_rel = (atr/float(lp)) if lp else None
+                    if em_abs:
+                        _em_cache_put(sym, expiry, horizon, lp, em_abs, em_rel)
                     if em_abs:
                         # Composite ODTE scoring helper
                         def _odte_composite(r: Dict[str, Any]) -> Optional[float]:
@@ -1425,64 +1461,6 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                             sc = _odte_composite(r)
                             if sc is not None:
                                 r["odte_score"] = round(sc*100.0, 1)
-                # EM & probabilities if we have picks and last price
-                if picks and lp is not None:
-                    em_abs, em_rel = _simple_em_from_straddle(lp, picks)
-                    # Horizon scaling: convert EM at expiry to EM for the horizon via sqrt(time) rule
-                    if em_abs:
-                        try:
-                            from datetime import date
-                            exp_d = date.fromisoformat(str(expiry))
-                            today = date.today()
-                            days_to_exp = max(0.25, (exp_d - today).days or 0.25)  # at least ~quarter day
-                            hours_to_exp = max(1.0, days_to_exp * 6.5)
-                            horizon_hours = 2.0 if horizon == "scalp" else 6.5 if horizon == "intraday" else None
-                            if horizon_hours and hours_to_exp > 0:
-                                scale = (horizon_hours / hours_to_exp) ** 0.5
-                                em_abs = em_abs * scale
-                                em_rel = em_abs / lp if lp else em_rel
-                        except Exception:
-                            pass
-                        for r in picks:
-                            # tradeability may be missing; compute only if engine available
-                            ta = None
-                            if tradeability_score:
-                                try:
-                                    # Percentiles from chain rows already computed above
-                                    ta = tradeability_score(r, horizon=horizon)
-                                except Exception:
-                                    pass
-                            r["tradeability"] = ta
-                            r["hit_probabilities"] = {
-                                "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
-                                "tp2": _p_touch(em_abs*0.50, em_abs) if em_abs else None,
-                            }
-                            # EV estimate for ranking (optional)
-                            if expected_value_intraday:
-                                try:
-                                    ev, bd = expected_value_intraday(r, lp, em_abs, horizon=horizon)
-                                    r["ev"] = {"dollars": ev, "pct": (ev/(max(1e-6, ((r.get('bid') or 0)+(r.get('ask') or 0))/2.0)) if (r.get('bid') is not None and r.get('ask') is not None) else None)}
-                                    r["ev_detail"] = bd
-                                except Exception:
-                                    pass
-                            # Attach chart URL for quick visualization
-                            try:
-                                url = _chart_url(
-                                    sym,
-                                    lp,
-                                    em_abs,
-                                    em_rel,
-                                    r,
-                                    horizon,
-                                    r.get("hit_probabilities") or {},
-                                    key_levels=key_levels_data,
-                                    fibs=fib_data,
-                                )
-                                r["chart_url"] = url
-                                if url:
-                                    r["chart_link"] = f"[View This Plan]({url})"
-                            except Exception:
-                                pass
 
                         # Short NBBO sampling to estimate spread stability and refresh quotes
                         async def _nbbo_sample(picks: List[Dict[str, Any]], samples: int = 2, interval: float = 0.35) -> Optional[Dict[str, Any]]:
@@ -1625,12 +1603,14 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                             return summary
 
                         # Limit sampling scope to avoid latency explosion
-                        try:
-                            nbbo_snapshot = await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
-                            if nbbo_snapshot:
-                                ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
-                        except Exception:
-                            pass
+                        if picks and _market_is_open_now():
+                            try:
+                                sample_n = min(len(picks), max(1, min(3, int(topK) if topK else 3)))
+                                nbbo_snapshot = await _nbbo_sample(picks[:sample_n], samples=2, interval=0.35)
+                                if nbbo_snapshot:
+                                    ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
+                            except Exception:
+                                pass
                         # Tighten gates and rank for ODTE/scalp
                         try:
                             if odte_flag or horizon == "scalp":
@@ -1674,87 +1654,104 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                             pass
                                     return out
                                 tivs = _vals(trows, 'iv'); tois = _vals(trows, 'open_interest'); tvols = _vals(trows, 'volume')
-                                def _pct_rank2(vals: List[float], x: Optional[float]) -> Optional[float]:
-                                    try:
-                                        return _pct_rank_surface(vals, x)
-                                    except Exception:
-                                        return None
-                                em_abs, em_rel = _simple_em_from_straddle(lp, picks)
-                                if em_abs:
-                                    # Apply same horizon scaling to fallback EM
-                                    try:
-                                        from datetime import date
-                                        exp_d = date.fromisoformat(str(expiry))
-                                        today = date.today()
-                                        days_to_exp = max(0.25, (exp_d - today).days or 0.25)
-                                        hours_to_exp = max(1.0, days_to_exp * 6.5)
-                                        horizon_hours = 2.0 if horizon == "scalp" else 6.5 if horizon == "intraday" else None
-                                        if horizon_hours and hours_to_exp > 0:
-                                            scale = (horizon_hours / hours_to_exp) ** 0.5
-                                            em_abs = em_abs * scale
-                                            em_rel = em_abs / lp if lp else em_rel
-                                    except Exception:
-                                        pass
-                                    for r in picks:
-                                        # Attach percentiles + ratio for scoring
-                                        if tivs:
-                                            r["iv_percentile"] = _pct_rank2(tivs, r.get("iv"))
-                                        if tois:
-                                            r["oi_percentile"] = _pct_rank2(tois, r.get("oi"))
-                                        if tvols:
-                                            r["vol_percentile"] = _pct_rank2(tvols, r.get("volume"))
-                                        try:
-                                            if r.get("oi"):
-                                                r["vol_oi_ratio"] = (float(r.get("volume") or 0.0) / float(r.get("oi") or 1.0))
-                                        except Exception:
-                                            pass
-                                        ta = None
-                                        if tradeability_score:
-                                            try:
-                                                ta = tradeability_score(r, horizon=horizon)
-                                            except Exception:
-                                                pass
-                                        try:
-                                            _attach_display_fields(sym, r)
-                                        except Exception:
-                                            pass
-                                        r["tradeability"] = ta
-                                        r["hit_probabilities"] = {
-                                            "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
-                                            "tp2": _p_touch(em_abs*0.50, em_abs) if em_abs else None,
-                                        }
-                                        if expected_value_intraday:
-                                            try:
-                                                ev, bd = expected_value_intraday(r, lp, em_abs, horizon=horizon)
-                                                r["ev"] = {"dollars": ev, "pct": (ev/(max(1e-6, ((r.get('bid') or 0)+(r.get('ask') or 0))/2.0)) if (r.get('bid') is not None and r.get('ask') is not None) else None)}
-                                                r["ev_detail"] = bd
-                                            except Exception:
-                                                pass
-                                        # Attach chart URL as well (fallback path)
-                                        try:
-                                            url = _chart_url(
-                                                sym,
-                                                lp,
-                                                em_abs,
-                                                em_rel,
-                                                r,
-                                                horizon,
-                                                r.get("hit_probabilities") or {},
-                                                key_levels=key_levels_data,
-                                                fibs=fib_data,
-                                            )
-                                            r["chart_url"] = url
-                                            if url:
-                                                r["chart_link"] = f"[View This Plan]({url})"
-                                        except Exception:
-                                            pass
-                                # NBBO sampling on fallback too
+                        def _pct_rank2(vals: List[float], x: Optional[float]) -> Optional[float]:
+                            try:
+                                return _pct_rank_surface(vals, x)
+                            except Exception:
+                                return None
+                        cached_em = _em_cache_get(sym, expiry, horizon, lp)
+                        if cached_em:
+                            em_abs, em_rel = cached_em
+                        else:
+                            em_abs, em_rel = _simple_em_from_straddle(lp, picks)
+                            if not em_abs and poly:
                                 try:
-                                    nbbo_snapshot = await _nbbo_sample(picks[:min(len(picks), max(4, int(topK)))], samples=2, interval=0.35)
-                                    if nbbo_snapshot:
-                                        ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
+                                    atr = await _atr14_daily(poly, sym)
+                                except Exception:
+                                    atr = None
+                                if atr:
+                                    em_abs = atr
+                                    em_rel = (atr/float(lp)) if lp else None
+                            if em_abs:
+                                _em_cache_put(sym, expiry, horizon, lp, em_abs, em_rel)
+                        if em_abs:
+                            # Apply same horizon scaling to fallback EM
+                            try:
+                                from datetime import date
+                                exp_d = date.fromisoformat(str(expiry))
+                                today = date.today()
+                                days_to_exp = max(0.25, (exp_d - today).days or 0.25)
+                                hours_to_exp = max(1.0, days_to_exp * 6.5)
+                                horizon_hours = 2.0 if horizon == "scalp" else 6.5 if horizon == "intraday" else None
+                                if horizon_hours and hours_to_exp > 0:
+                                    scale = (horizon_hours / hours_to_exp) ** 0.5
+                                    em_abs = em_abs * scale
+                                    em_rel = em_abs / lp if lp else em_rel
+                            except Exception:
+                                pass
+                        if em_abs:
+                            for r in picks:
+                                # Attach percentiles + ratio for scoring
+                                if tivs:
+                                    r["iv_percentile"] = _pct_rank2(tivs, r.get("iv"))
+                                if tois:
+                                    r["oi_percentile"] = _pct_rank2(tois, r.get("oi"))
+                                if tvols:
+                                    r["vol_percentile"] = _pct_rank2(tvols, r.get("volume"))
+                                try:
+                                    if r.get("oi"):
+                                        r["vol_oi_ratio"] = (float(r.get("volume") or 0.0) / float(r.get("oi") or 1.0))
                                 except Exception:
                                     pass
+                                ta = None
+                                if tradeability_score:
+                                    try:
+                                        ta = tradeability_score(r, horizon=horizon)
+                                    except Exception:
+                                        pass
+                                try:
+                                    _attach_display_fields(sym, r)
+                                except Exception:
+                                    pass
+                                r["tradeability"] = ta
+                                r["hit_probabilities"] = {
+                                    "tp1": _p_touch(em_abs*0.25, em_abs) if em_abs else None,
+                                    "tp2": _p_touch(em_abs*0.50, em_abs) if em_abs else None,
+                                }
+                                if expected_value_intraday:
+                                    try:
+                                        ev, bd = expected_value_intraday(r, lp, em_abs, horizon=horizon)
+                                        r["ev"] = {"dollars": ev, "pct": (ev/(max(1e-6, ((r.get('bid') or 0)+(r.get('ask') or 0))/2.0)) if (r.get('bid') is not None and r.get('ask') is not None) else None)}
+                                        r["ev_detail"] = bd
+                                    except Exception:
+                                        pass
+                                # Attach chart URL as well (fallback path)
+                                try:
+                                    url = _chart_url(
+                                        sym,
+                                        lp,
+                                        em_abs,
+                                        em_rel,
+                                        r,
+                                        horizon,
+                                        r.get("hit_probabilities") or {},
+                                        key_levels=key_levels_data,
+                                        fibs=fib_data,
+                                    )
+                                    r["chart_url"] = url
+                                    if url:
+                                        r["chart_link"] = f"[View This Plan]({url})"
+                                except Exception:
+                                    pass
+                                # NBBO sampling on fallback too
+                                if picks and _market_is_open_now():
+                                    try:
+                                        sample_n = min(len(picks), max(1, min(3, int(topK) if topK else 3)))
+                                        nbbo_snapshot = await _nbbo_sample(picks[:sample_n], samples=2, interval=0.35)
+                                        if nbbo_snapshot:
+                                            ctx.setdefault("order_flow", {}).update(nbbo_snapshot)
+                                    except Exception:
+                                        pass
                                 # Tighten quality gates for ODTE/scalp
                                 try:
                                     if options_req.get("odte") or horizon == "scalp":

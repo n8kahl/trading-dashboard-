@@ -80,6 +80,37 @@ async def _maybe_await(v):
         return await v
     return v
 
+
+async def _atr14_daily(poly, symbol: str) -> Optional[float]:
+    """Compute a simple ATR(14) from daily bars as a fallback for EM.
+    Returns average true range in price units for the last 14 completed sessions.
+    """
+    if not poly:
+        return None
+    try:
+        bars = await poly.daily_bars(symbol, lookback=40)  # sufficient for ATR14
+        if not bars or len(bars) < 15:
+            return None
+        trs = []
+        prev_c = None
+        for b in bars:
+            h, l, c = b.get("h"), b.get("l"), b.get("c")
+            if h is None or l is None or c is None:
+                continue
+            if prev_c is None:
+                tr = float(h) - float(l)
+            else:
+                tr = max(float(h) - float(l), abs(float(h) - prev_c), abs(float(l) - prev_c))
+            trs.append(tr)
+            prev_c = float(c)
+        if len(trs) < 15:
+            return None
+        # Exclude the first warm-up bar; take last 14
+        last14 = trs[-14:]
+        return round(sum(last14) / len(last14), 4)
+    except Exception:
+        return None
+
 def _market_is_open_now() -> bool:
     try:
         tz = _ZoneInfo("America/New_York")
@@ -287,7 +318,18 @@ def _chart_url(
         # Baseline R risk from EM fraction
         em_risk_frac = 0.22 if hz in ("scalp",) else 0.28 if hz in ("intraday",) else 0.35 if hz in ("swing",) else 0.40
         risk = max(0.01 * entry, em_risk_frac * em_abs)
-        # EM-based target distances
+        # EM-based target distances, scaled by volatility regime (IV percentile)
+        ivp = None
+        try:
+            ivp = float(r.get("iv_percentile")) if r.get("iv_percentile") is not None else None
+        except Exception:
+            ivp = None
+        vol_scale = 1.0
+        if ivp is not None:
+            if ivp <= 20:
+                vol_scale = 0.90
+            elif ivp >= 80:
+                vol_scale = 1.15
         if hz in ("scalp",):
             d1, d2 = 0.50 * em_abs, 1.00 * em_abs
         elif hz in ("intraday",):
@@ -296,6 +338,8 @@ def _chart_url(
             d1, d2 = 1.00 * em_abs, 1.80 * em_abs
         else:  # leaps / default
             d1, d2 = 1.50 * em_abs, 2.50 * em_abs
+        d1 *= vol_scale
+        d2 *= vol_scale
         # Risk-based target distances
         rr1, rr2 = 1.2 * risk, 2.0 * risk
         dist1 = max(d1, rr1)
@@ -1210,6 +1254,15 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                 # EM & probabilities if we have picks and last price
                 if picks and lp is not None:
                     em_abs, em_rel = _simple_em_from_straddle(lp, picks)
+                    if not em_abs and poly:
+                        # Fallback to ATR(14) daily when straddle-based EM is unavailable
+                        try:
+                            atr = await _atr14_daily(poly, sym)
+                        except Exception:
+                            atr = None
+                        if atr:
+                            em_abs = atr
+                            em_rel = (atr/float(lp)) if lp else None
                     if em_abs:
                         # Composite ODTE scoring helper
                         def _odte_composite(r: Dict[str, Any]) -> Optional[float]:

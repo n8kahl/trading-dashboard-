@@ -281,14 +281,61 @@ def _chart_url(
             return None
         direction = "long" if (r.get("type") == "call") else "short"
         entry = float(last)
+
+        # Horizon-aware targets and stops: choose the larger of R-multiples and EM-multiples
+        hz = (horizon or '').lower()
+        # Baseline R risk from EM fraction
+        em_risk_frac = 0.22 if hz in ("scalp",) else 0.28 if hz in ("intraday",) else 0.35 if hz in ("swing",) else 0.40
+        risk = max(0.01 * entry, em_risk_frac * em_abs)
+        # EM-based target distances
+        if hz in ("scalp",):
+            d1, d2 = 0.50 * em_abs, 1.00 * em_abs
+        elif hz in ("intraday",):
+            d1, d2 = 0.70 * em_abs, 1.20 * em_abs
+        elif hz in ("swing",):
+            d1, d2 = 1.00 * em_abs, 1.80 * em_abs
+        else:  # leaps / default
+            d1, d2 = 1.50 * em_abs, 2.50 * em_abs
+        # Risk-based target distances
+        rr1, rr2 = 1.2 * risk, 2.0 * risk
+        dist1 = max(d1, rr1)
+        dist2 = max(d2, rr2, dist1 * 1.25)
+        # Compute preliminary SL/TPs
         if direction == "long":
-            sl = entry - 0.25 * em_abs
-            tp1 = entry + 0.25 * em_abs
-            tp2 = entry + 0.50 * em_abs
+            sl = entry - risk
+            tp1 = entry + dist1
+            tp2 = entry + dist2
         else:
-            sl = entry + 0.25 * em_abs
-            tp1 = entry - 0.25 * em_abs
-            tp2 = entry - 0.50 * em_abs
+            sl = entry + risk
+            tp1 = entry - dist1
+            tp2 = entry - dist2
+
+        # Snap to nearby confluence levels beyond entry when close enough
+        try:
+            level_candidates = _collect_level_candidates(key_levels, fibs)
+            window = max(0.15, em_abs * (0.20 if hz in ("scalp",) else 0.25 if hz in ("intraday",) else 0.35))
+            if level_candidates:
+                near1 = _nearest_level(tp1, entry, direction, level_candidates, window)
+                if near1:
+                    tp1 = near1[1]
+                near2 = _nearest_level(tp2, entry, direction, level_candidates, window * 1.2)
+                if near2:
+                    tp2 = near2[1]
+                stop_note = _stop_near(entry, sl, direction, level_candidates, window)
+                if stop_note:
+                    sl = stop_note[1]
+        except Exception:
+            pass
+        # Ensure TP spacing is meaningful
+        try:
+            min_gap = max(0.0025 * entry, 0.20 * em_abs)
+            if abs(tp2 - tp1) < min_gap:
+                if direction == "long":
+                    tp2 = tp1 + min_gap
+                else:
+                    tp2 = tp1 - min_gap
+        except Exception:
+            pass
         conf = ",".join(_confluence_tags(r, horizon))
         # Simple beginner-friendly plan text (pipe-separated bullets)
         plan = []

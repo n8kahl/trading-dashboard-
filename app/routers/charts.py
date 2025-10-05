@@ -456,6 +456,21 @@ async def chart_proposal(
       let sl = p(${SL});
       let tp1 = p(${TP1});
       let tp2 = p(${TP2});
+      // If TP lines are missing but entry/stop exist, synthesize 1R/1.5R targets
+      try {
+        if (entry !== null && sl !== null && (tp1 === null || tp2 === null)) {
+          const risk = Math.abs(entry - sl);
+          if (risk > 0) {
+            if (dir === 'long') {
+              if (tp1 === null) tp1 = entry + 1.0 * risk;
+              if (tp2 === null) tp2 = entry + 1.5 * risk;
+            } else {
+              if (tp1 === null) tp1 = entry - 1.0 * risk;
+              if (tp2 === null) tp2 = entry - 1.5 * risk;
+            }
+          }
+        }
+      } catch(e) {}
       const entryTime = ${ENTRY_TIME};
       function priceLine(value, title, color) {
         if (value===null) return;
@@ -516,7 +531,22 @@ async def chart_proposal(
         badges.appendChild(b);
       };
       if (confluence && confluence.length) {
-        for (const name of confluence) addBadge(name);
+        const pretty = (t) => {
+          const map = {
+            'liquidity_ok': 'Liquidity OK',
+            'liquidity_light': 'Thin Liquidity',
+            'spread_tight': 'Tight Spread',
+            'spread_wide': 'Wide Spread',
+            'stability_ok': 'Spread Stable',
+            'iv_mid': 'IV Mid',
+            'iv_extreme': 'IV Extreme',
+            'ev_positive': 'EV +',
+            'ev_negative': 'EV −',
+            'delta_fit': 'Δ Fit',
+          };
+          return map[t] || t.replace(/_/g,' ').replace(/\b\w/g, s=>s.toUpperCase());
+        };
+        for (const name of confluence) addBadge(pretty(name));
       }
       if (emAbs !== null && !isNaN(emAbs)) addBadge('EM ± ' + Number(emAbs).toFixed(2));
       if (emRel !== null && !isNaN(emRel)) addBadge('EM ' + (Number(emRel)*100).toFixed(1) + '%');

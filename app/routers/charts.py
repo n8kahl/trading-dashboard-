@@ -466,18 +466,38 @@ async def chart_proposal(
       let sl = p(${SL});
       let tp1 = p(${TP1});
       let tp2 = p(${TP2});
-      // If TP lines are missing but entry/stop exist, synthesize 1R/1.5R targets
+      // If TP lines are missing but entry/stop exist, synthesize horizon-aware targets
       try {
         if (entry !== null && sl !== null && (tp1 === null || tp2 === null)) {
           const risk = Math.abs(entry - sl);
-          if (risk > 0) {
-            if (dir === 'long') {
-              if (tp1 === null) tp1 = entry + 1.0 * risk;
-              if (tp2 === null) tp2 = entry + 1.5 * risk;
-            } else {
-              if (tp1 === null) tp1 = entry - 1.0 * risk;
-              if (tp2 === null) tp2 = entry - 1.5 * risk;
-            }
+          // Interval → horizon
+          const itv = '${INTERVAL}';
+          const isScalp = (itv === '1m' || itv === '5m');
+          const isIntraday = (itv === '15m');
+          const isDaily = (itv === '1d');
+          const emv = (emAbs!==null && !isNaN(emAbs)) ? Number(emAbs) : null;
+          // EM-based target distances per horizon
+          let d1 = null, d2 = null;
+          if (emv !== null) {
+            if (isScalp) { d1 = 0.50*emv; d2 = 1.00*emv; }
+            else if (isIntraday) { d1 = 0.70*emv; d2 = 1.20*emv; }
+            else if (isDaily) { d1 = 1.00*emv; d2 = 1.80*emv; }
+            else { d1 = 1.50*emv; d2 = 2.50*emv; }
+          }
+          const rr1 = 1.2*risk, rr2 = 2.0*risk;
+          const dist1 = Math.max(d1 ?? 0, rr1);
+          const dist2 = Math.max(d2 ?? 0, rr2, dist1*1.25);
+          if (dir === 'long') {
+            if (tp1 === null) tp1 = entry + dist1;
+            if (tp2 === null) tp2 = entry + dist2;
+          } else {
+            if (tp1 === null) tp1 = entry - dist1;
+            if (tp2 === null) tp2 = entry - dist2;
+          }
+          // Enforce a meaningful gap between TP1/TP2
+          const minGap = Math.max(0.0025*entry, (emv ? 0.20*emv : 0.5*risk));
+          if (Math.abs(tp2 - tp1) < minGap) {
+            if (dir === 'long') tp2 = tp1 + minGap; else tp2 = tp1 - minGap;
           }
         }
       } catch(e) {}

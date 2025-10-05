@@ -8,6 +8,7 @@ This document tracks code and docs changes so work can be resumed easily in a ne
 - API: New storage router exposes `POST/GET /api/v1/trades`, `POST/GET /api/v1/features`, `POST/GET /api/v1/logs` with filtering and envelope responses.
 - Alerts: Discord webhook notifier fires on trade inserts and error/critical logs (`DISCORD_WEBHOOK_URL`). Added env template entries and documented usage in README/USAGE.
 - Ops: Docker env template now ships a ready Postgres `DATABASE_URL`; deployment guide updated with webhook + DB hints.
+- Trading UX: Horizon-aware TP/SL engine in assistant + proposal charts (EM + ATR + IV percentile + remaining-session scaling, confluence snapping, minimum spacing). Charts label VWAP/EMA/Pivots/current price and render proposal-only links (15m intraday, 1d leaps). Leap requests default to ~6M expiries with matching target sizing. (Commits: 7d2b03d, 17877fd, 7ca042d, da5920f, e9afa86, 1edc28f, 624a8ca, 4748e79)
 
 ## 2025-09-15
 

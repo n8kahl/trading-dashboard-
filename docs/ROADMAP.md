@@ -4,10 +4,10 @@ Focus: improve data quality, trade selection accuracy, and realistic expectancy.
 
 ## Near Term (1–2 weeks)
 
-- IV Rank and Surface Context
-  - Implemented basic IV percentile per expiry for snapshot chains; feeding into scoring. Next: expand to multi‑expiry surface and cache.
+- IV Rank and Surface Context ✅
+  - Implemented multi‑expiry IV percentile surface + caching feeding into scoring and tree fallback.
 
-- OI/Volume Liquidity Trend
+- OI/Volume Liquidity Trend ✅
   - Track open interest and compare today’s volume versus recent sessions.
   - Favor persistent liquidity; penalize one‑off spikes.
 
@@ -15,9 +15,9 @@ Focus: improve data quality, trade selection accuracy, and realistic expectancy.
   - Sample 3–5 times over ~60s for top 10–15 candidates with concurrency limits.
   - Use spread variance and quote refresh rate in tradeability.
 
-- EV Scoring Calibration
-  - Validate EV proxy against historical intraday outcomes.
-  - Tune TP/SL distances and slippage factors by symbol/expiry bucket.
+- TP/SL Engine Calibration ✅
+  - Horizon-aware EM+ATR sizing with IV percentile regime scaling and remaining-session adjustment; confluence snapping + minimum spacing shipped.
+  - Execution guidance simplified to “limit at mid,” and charts mirror backend logic (labels for VWAP/EMA/Pivots/current).
 
 - Data Reliability & Fallbacks
   - Add light retry/backoff to Tradier calls, unify error surfaces across providers.

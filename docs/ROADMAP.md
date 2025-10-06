@@ -19,6 +19,15 @@ Focus: improve data quality, trade selection accuracy, and realistic expectancy.
   - Horizon-aware EM+ATR sizing with IV percentile regime scaling and remaining-session adjustment; confluence snapping + minimum spacing shipped.
   - Execution guidance simplified to “limit at mid,” and charts mirror backend logic (labels for VWAP/EMA/Pivots/current).
 
+## Milestones
+
+- Production Point 1 (2025-09-16)
+  - Core storage, charts, EM scaling, EV, NBBO sampler, confidence scaffolding.
+- Production Point 2 (2025-10-06) — Current
+  - Horizon-aware options windows (scalp/intraday/swing/leap) drive contract selection; leap fallback uses Tradier expirations inside window.
+  - Intraday targets use remaining-session EM; IVP scaling; R floors and confluence snapping; proposal chart labels and auto-TP synthesis.
+  - Performance: suppressed 404s, limited NBBO scope, EM/ATR cache.
+
 - Data Reliability & Fallbacks
   - Add light retry/backoff to Tradier calls, unify error surfaces across providers.
   - Persist provider errors in metrics for observability.

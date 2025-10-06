@@ -206,3 +206,17 @@ This document tracks code and docs changes so work can be resumed easily in a ne
   - Smarter ODTE ranking: prioritize by (a) `spread_stability`, (b) delta closeness to 0.45, (c) `iv_percentile` mid‑range, (d) `vol_oi_ratio`. Expose composite score to the LLM.
   - Intraday statistical bands: add server‑side minute‑VWAP σ bands and recent RVOL percentile to context; boost confidence when confluence with TP/levels occurs.
   - Event overlay: integrate earnings/macro timestamps into context and suppress plans that collide with imminent high‑impact events unless explicitly asked.
+## 2025-10-06 — Production Point 2
+
+- Targets/Stops: horizon-aware sizing aligned to real trader behavior
+  - Uses EM from straddle with ATR(14) fallback; scales by remaining session for intraday/scalp; adds IV percentile regime scaling.
+  - Floors via R-multiples (T1 ≥ 1.0R, T2 ≥ 1.6R) and confluence snapping to pivots/fibs; minimum TP spacing enforced.
+- Charts: proposal-only (no TradingView), 15m for intraday/swing, 1d for leaps
+  - Auto-synthesize TP1/TP2 from entry/stop when omitted with the same engine as backend.
+  - Labeled overlays (VWAP, EMA20/50, Pivots, Current price). Confluence/Liquidity badges prettified.
+- Options horizon windows (applied before contract selection)
+  - scalp 0–1 DTE; intraday 0–7; swing 7–90; leap 180–540.
+  - Tradier fallback selects expiry via `expirations()` inside the window, with progressive widening.
+- Performance & reliability
+  - Suppress Polygon 404 noise, add negative caching; cap NBBO sampling during RTH only; EM/ATR per-symbol cache.
+- Links: chart_url and chart_link (markdown) consistently available; prompt renders a clickable “View This Plan”.

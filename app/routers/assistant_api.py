@@ -1289,6 +1289,45 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                     if isinstance(v, list) and v:
                         chain_rows = v
                         break
+                # DTE helpers and horizon windows
+                from datetime import date as _date
+                def _row_expiry(row: Dict[str, Any]) -> Optional[str]:
+                    meta = row.get("options") or {}
+                    det = row.get("details") or {}
+                    if row.get("expiry"):
+                        return str(row.get("expiry"))
+                    if (row.get("_occ") or {}).get("expiry"):
+                        return str((row.get("_occ") or {}).get("expiry"))
+                    return str(meta.get("expiration_date") or det.get("expiration_date") or det.get("expiry") or "") or None
+                def _row_dte(row: Dict[str, Any]) -> Optional[int]:
+                    exp = _row_expiry(row)
+                    if not exp:
+                        return None
+                    try:
+                        ed = _date.fromisoformat(str(exp))
+                        td = _date.today()
+                        return max(0, (ed - td).days)
+                    except Exception:
+                        return None
+                def _dte_bounds_for_hz(hz: str) -> tuple[int,int]:
+                    hz = (hz or '').lower()
+                    if hz in ("scalp",):
+                        return (0, 1)
+                    if hz in ("intraday",):
+                        return (0, 7)
+                    if hz in ("swing",):
+                        return (7, 90)
+                    return (180, 540)
+                lo_dte, hi_dte = _dte_bounds_for_hz(horizon)
+                def _filter_by_dte(rows: List[Dict[str, Any]], lo: int, hi: int) -> List[Dict[str, Any]]:
+                    out: List[Dict[str, Any]] = []
+                    for r in rows:
+                        dte = _row_dte(r)
+                        if dte is None:
+                            continue
+                        if lo <= dte <= hi:
+                            out.append(r)
+                    return out
                 # Cache/update IV surface and record liquidity aggregates
                 if chain_rows:
                     try:
@@ -1304,10 +1343,22 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                         pass
 
                 if raw_top:
-                    picks = raw_top[:topK]
+                    rows = raw_top
+                    win = _filter_by_dte(rows, lo_dte, hi_dte)
+                    if not win:
+                        # progressive widen
+                        win = _filter_by_dte(rows, int(lo_dte*0.8), int(hi_dte*1.2)) or rows
+                    if lp is not None:
+                        picks = _near_atm_pairs(win, lp, topK=topK)
+                    else:
+                        picks = win[:topK]
                 else:
                         if chain_rows and lp is not None:
-                            picks = _near_atm_pairs(chain_rows, lp, topK=topK)
+                            rows = chain_rows
+                            win = _filter_by_dte(rows, lo_dte, hi_dte)
+                            if not win:
+                                win = _filter_by_dte(rows, int(lo_dte*0.8), int(hi_dte*1.2)) or rows
+                            picks = _near_atm_pairs(win, lp, topK=topK)
                             # Enforce spread filter when quoted
                             picks = [p for p in picks if (p.get("spread_pct") is None) or (p.get("spread_pct") <= maxSpreadPct)]
 
@@ -1637,7 +1688,24 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                     if callable(tc_fn):
                         trows = await _maybe_await(tc_fn(sym, expiry=expiry, greeks=greeks))
                         if trows and lp is not None:
-                            picks = _near_atm_pairs(trows, lp, topK=topK)
+                            # Filter by DTE window
+                            def _trow_expiry(row: Dict[str, Any]) -> Optional[str]:
+                                return str(row.get("expiry") or row.get("expiration") or row.get("expiration_date") or "") or None
+                            from datetime import date as _date
+                            def _trow_dte(row: Dict[str, Any]) -> Optional[int]:
+                                exp = _trow_expiry(row)
+                                if not exp:
+                                    return None
+                                try:
+                                    ed = _date.fromisoformat(str(exp))
+                                    td = _date.today()
+                                    return max(0, (ed - td).days)
+                                except Exception:
+                                    return None
+                            win_rows = [r for r in trows if ((d:=_trow_dte(r)) is not None and lo_dte <= d <= hi_dte)]
+                            if not win_rows:
+                                win_rows = [r for r in trows if ((d:=_trow_dte(r)) is not None and int(lo_dte*0.8) <= d <= int(hi_dte*1.2))] or trows
+                            picks = _near_atm_pairs(win_rows, lp, topK=topK)
                             picks = [p for p in picks if (p.get("spread_pct") is None) or (p.get("spread_pct") <= maxSpreadPct)]
                             if picks:
                                 # Percentiles for Tradier rows

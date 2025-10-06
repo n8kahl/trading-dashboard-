@@ -1684,11 +1684,43 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                     # Import lazily to avoid hard dependency
                     from importlib import import_module as _im2
                     tc_mod = _im2("app.services.providers.tradier_chain")
-                    tc_fn = getattr(tc_mod, "options_chain", None)
-                    if callable(tc_fn):
-                        trows = await _maybe_await(tc_fn(sym, expiry=expiry, greeks=greeks))
+                    tc_chain = getattr(tc_mod, "options_chain", None)
+                    tc_exps = getattr(tc_mod, "expirations", None)
+                    if callable(tc_chain):
+                        # Resolve a concrete expiry within the horizon DTE window
+                        chosen_exp = expiry
+                        if callable(tc_exps):
+                            try:
+                                all_exps = await _maybe_await(tc_exps(sym))
+                            except Exception:
+                                all_exps = []
+                            if all_exps:
+                                from datetime import date as _date
+                                today = _date.today()
+                                def _dte(iso: str) -> Optional[int]:
+                                    try:
+                                        return max(0, (_date.fromisoformat(str(iso)) - today).days)
+                                    except Exception:
+                                        return None
+                                center = (lo_dte + hi_dte) / 2.0
+                                cands = []
+                                for e in all_exps:
+                                    d = _dte(e)
+                                    if d is not None and lo_dte <= d <= hi_dte:
+                                        cands.append((abs(d - center), e))
+                                if not cands:
+                                    lo2, hi2 = int(lo_dte*0.8), int(hi_dte*1.2)
+                                    for e in all_exps:
+                                        d = _dte(e)
+                                        if d is not None and lo2 <= d <= hi2:
+                                            cands.append((abs(d - center), e))
+                                if cands:
+                                    cands.sort(key=lambda x: x[0])
+                                    chosen_exp = cands[0][1]
+                        # Fetch chain for the chosen expiry
+                        trows = await _maybe_await(tc_chain(sym, expiry=chosen_exp, greeks=greeks))
                         if trows and lp is not None:
-                            # Filter by DTE window
+                            # Filter by DTE window and select near-ATM
                             def _trow_expiry(row: Dict[str, Any]) -> Optional[str]:
                                 return str(row.get("expiry") or row.get("expiration") or row.get("expiration_date") or "") or None
                             from datetime import date as _date
@@ -1702,9 +1734,7 @@ async def _handle_snapshot(args: Dict[str, Any]) -> Dict[str, Any]:
                                     return max(0, (ed - td).days)
                                 except Exception:
                                     return None
-                            win_rows = [r for r in trows if ((d:=_trow_dte(r)) is not None and lo_dte <= d <= hi_dte)]
-                            if not win_rows:
-                                win_rows = [r for r in trows if ((d:=_trow_dte(r)) is not None and int(lo_dte*0.8) <= d <= int(hi_dte*1.2))] or trows
+                            win_rows = [r for r in trows if ((d:=_trow_dte(r)) is not None and lo_dte <= d <= hi_dte)] or trows
                             picks = _near_atm_pairs(win_rows, lp, topK=topK)
                             picks = [p for p in picks if (p.get("spread_pct") is None) or (p.get("spread_pct") <= maxSpreadPct)]
                             if picks:
